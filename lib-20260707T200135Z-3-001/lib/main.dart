@@ -87,7 +87,7 @@ class _LoginPageState extends State<LoginPage> {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              const Color(0xFF6366F1).withOpacity(0.8),
+              const Color(0xFF6366F1).withValues(alpha: 0.8),
               const Color(0xFF8B5CF6),
             ],
           ),
@@ -105,7 +105,7 @@ class _LoginPageState extends State<LoginPage> {
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
+                        color: Colors.black.withValues(alpha: 0.1),
                         blurRadius: 20,
                         offset: const Offset(0, 10),
                       ),
@@ -293,7 +293,7 @@ class _RegisterPageState extends State<RegisterPage> {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              const Color(0xFF6366F1).withOpacity(0.8),
+              const Color(0xFF6366F1).withValues(alpha: 0.8),
               const Color(0xFF8B5CF6),
             ],
           ),
@@ -312,7 +312,7 @@ class _RegisterPageState extends State<RegisterPage> {
                       child: Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
+                          color: Colors.white.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: const Icon(Icons.arrow_back, color: Colors.white),
@@ -347,7 +347,7 @@ class _RegisterPageState extends State<RegisterPage> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: DropdownButtonFormField<String>(
-                      value: _selectedRole,
+                      initialValue: _selectedRole,
                       items: const [
                         DropdownMenuItem(value: 'Usuario', child: Text('Usuario')),
                         DropdownMenuItem(value: 'Emprendedor', child: Text('Emprendedor')),
@@ -576,7 +576,7 @@ class _HomePageState extends State<HomePage> {
           Container(
             margin: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
+              color: Colors.white.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(8),
             ),
             child: IconButton(
@@ -596,7 +596,7 @@ class _HomePageState extends State<HomePage> {
             width: double.infinity,
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [const Color(0xFF6366F1).withOpacity(0.1), Colors.transparent],
+                colors: [const Color(0xFF6366F1).withValues(alpha: 0.1), Colors.transparent],
               ),
             ),
             padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
@@ -605,7 +605,7 @@ class _HomePageState extends State<HomePage> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF6366F1).withOpacity(0.2),
+                    color: const Color(0xFF6366F1).withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
@@ -670,7 +670,7 @@ class _HomePageState extends State<HomePage> {
                               borderRadius: BorderRadius.circular(16),
                               boxShadow: [
                                 BoxShadow(
-                                  color: bgColor.withOpacity(0.3),
+                                  color: bgColor.withValues(alpha: 0.3),
                                   blurRadius: 8,
                                   offset: const Offset(0, 4),
                                 ),
