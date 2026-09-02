@@ -31,7 +31,7 @@ void main() {
 
     await tester.pumpWidget(
       MediaQuery(
-        data: const MediaQueryData(textScaleFactor: 1.5),
+        data: const MediaQueryData(textScaler: TextScaler.linear(1.5)),
         child: MyApp(apiService: ApiService()),
       ),
     );

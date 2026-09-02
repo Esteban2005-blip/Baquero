@@ -36,28 +36,28 @@ class AppButton extends StatelessWidget {
         : tokens.surface;
 
     final style = ButtonStyle(
-      minimumSize: MaterialStateProperty.all<Size>(
+      minimumSize: WidgetStateProperty.all<Size>(
         const Size(AppTokens.touchTarget, AppTokens.touchTarget),
       ),
-      padding: MaterialStateProperty.all<EdgeInsetsGeometry>(
+      padding: WidgetStateProperty.all<EdgeInsetsGeometry>(
         const EdgeInsets.symmetric(horizontal: AppTokens.space6),
       ),
-      foregroundColor: MaterialStateProperty.resolveWith<Color?>((states) {
-        return states.contains(MaterialState.disabled) ? tokens.textMuted : foreground;
+      foregroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
+        return states.contains(WidgetState.disabled) ? tokens.textMuted : foreground;
       }),
-      backgroundColor: MaterialStateProperty.resolveWith<Color?>((states) {
-        return states.contains(MaterialState.disabled) ? tokens.background : background;
+      backgroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
+        return states.contains(WidgetState.disabled) ? tokens.background : background;
       }),
-      side: MaterialStateProperty.resolveWith<BorderSide?>((states) {
+      side: WidgetStateProperty.resolveWith<BorderSide?>((states) {
         return BorderSide(
-          color: states.contains(MaterialState.disabled)
+          color: states.contains(WidgetState.disabled)
               ? tokens.outline
               : variant == AppButtonVariant.danger
                   ? tokens.error
                   : tokens.primary,
         );
       }),
-      shape: MaterialStateProperty.all<OutlinedBorder>(
+      shape: WidgetStateProperty.all<OutlinedBorder>(
         const RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(AppTokens.radiusSm)),
         ),

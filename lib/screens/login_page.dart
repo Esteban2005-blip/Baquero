@@ -117,7 +117,7 @@ class _LoginPageState extends State<LoginPage> {
                           width: double.infinity,
                           padding: const EdgeInsets.all(AppTokens.space3),
                           decoration: BoxDecoration(
-                            color: tokens.error.withOpacity(0.08),
+                            color: tokens.error.withValues(alpha: 0.08),
                             borderRadius: BorderRadius.circular(AppTokens.radiusSm),
                             border: Border.all(color: tokens.error),
                           ),
