@@ -1,95 +1,68 @@
-# Aplicación Flutter con SQLite
+# Baquero Notes
 
-Esta es una aplicación Flutter de ejemplo que usa SQLite para almacenar notas localmente.
+Aplicación Flutter de notas conectada a una API Flask segura. La interfaz se organiza mediante tokens de diseño, componentes reutilizables y estados explícitos de carga, vacío y error.
 
-## Archivos creados
+## Arquitectura
 
-- `pubspec.yaml`
-- `lib/main.dart`
-- `lib/db_helper.dart`
-- `lib/note.dart`
-- `.gitignore`
+- `lib/design/`: tokens primitivos y semánticos, tipografía y tema Material 3.
+- `lib/components/`: `AppButton`, `AppTextField`, `NoteCard` y `StatePanel`.
+- `lib/screens/`: acceso, registro, notas y catálogo de componentes.
+- `lib/api_service.dart`: autenticación JWT y CRUD; es el único módulo cliente que conoce las rutas.
+- `backend/app.py`: API Flask, persistencia SQLite, validaciones, autorización y roles.
+- `test/`: pruebas del contrato HTTP y de interfaz/semántica.
+- `evidence/`: capturas responsivas generadas desde `app_preview.html` con los mismos tokens visuales.
 
-## Cómo ejecutar Flutter
+## Endpoints consumidos por Flutter
 
-1. Instala Flutter desde: https://docs.flutter.dev/get-started/install
-2. Abre esta carpeta en VS Code.
-3. Ejecuta en la terminal:
+| Método | Ruta | Pantalla |
+|---|---|---|
+| POST | `/api/auth/register` | Registro |
+| POST | `/api/auth/login` | Acceso |
+| POST | `/api/auth/logout` | Cierre de sesión |
+| GET | `/api/notes` | Listado y actualización |
+| POST | `/api/notes` | Editor: nueva nota |
+| PUT | `/api/notes/{id}` | Editor: guardar cambios |
+| DELETE | `/api/notes/{id}` | Confirmación de eliminación |
 
-```bash
-flutter pub get
-flutter create .
-flutter run
-```
+La API también ofrece renovación de token, exportación asíncrona y administración de usuarios; esos endpoints no tienen pantalla en esta entrega.
 
-Si `flutter create .` genera `android/` e `ios/`, el proyecto estará listo para correr.
+## Ejecución
 
-## Qué hace la app Flutter
+1. Backend:
 
-- Crea una base de datos local SQLite llamada `app_db.db`
-- Crea una tabla `users` para login y roles
-- Crea una tabla `notes` para realizar notas
-- Permite:
-  - registrar emprendedores y usuarios
-  - iniciar sesión con correo y contraseña
-  - ver el rol del usuario dentro de la app
-  - agregar, editar y eliminar notas
+   ```bash
+   cd backend
+   python -m pip install -r requirements.txt
+   python app.py
+   ```
 
-## Backend de pruebas para CRUD
+2. Flutter:
 
-Se añadió una API básica en la carpeta `backend/` para probar operaciones CRUD sobre notas.
+   ```bash
+   flutter pub get
+   flutter run
+   ```
 
-### Ejecutar el backend
+El emulador Android usa por defecto `http://10.0.2.2:5000/api`, configurable en `.env`.
 
-```bash
-cd backend
-pip install -r requirements.txt
-python app.py
-```
-
-La API quedará disponible en:
-
-- http://127.0.0.1:5000/api/notes
-
-### Probar los endpoints
-
-- POST /api/notes
-- GET /api/notes
-- GET /api/notes/<id>
-- PUT /api/notes/<id>
-- DELETE /api/notes/<id>
-
-### Ejecutar pruebas
+## Pruebas
 
 ```bash
-cd backend
-pytest -q
+flutter test
 ```
 
-## Android nativo con SQLite
+El flujo del backend se verificó contra una base SQLite aislada: registro, creación, listado, actualización y eliminación. El entorno de elaboración no incluía Flutter SDK, por lo que las pruebas Dart quedan preparadas para ejecutarse en una estación con Flutter instalado.
 
-También agregué un ejemplo nativo en la carpeta `android_native/`.
+## Accesibilidad
 
-Para abrirlo, usa Android Studio o un proyecto Gradle en esa carpeta.
+- Pares de color principales con contraste WCAG AA.
+- Objetivos táctiles mínimos de 48 px.
+- Etiquetas semánticas, `Tooltip` y regiones vivas.
+- Los estados no dependen únicamente del color.
+- Diseño desplazable y responsivo; la fuente del sistema no se limita.
 
-### Archivos importantes
+## Repositorio remoto
 
-- `android_native/settings.gradle`
-- `android_native/build.gradle`
-- `android_native/app/build.gradle`
-- `android_native/app/src/main/java/com/example/androidnativeapp/MainActivity.kt`
-- `android_native/app/src/main/java/com/example/androidnativeapp/DBHelper.kt`
-- `android_native/app/src/main/java/com/example/androidnativeapp/Note.kt`
-- `android_native/app/src/main/res/layout/activity_main.xml`
-- `android_native/app/src/main/res/values/strings.xml`
-- `android_native/app/src/main/AndroidManifest.xml`
+Esta copia local no incluye metadatos Git ni una URL remota. Añada aquí el enlace de lectura antes de la entrega académica:
 
-### Cómo ejecutar Android nativo
-
-1. Abre la carpeta `android_native` en Android Studio.
-2. Sincroniza el proyecto.
-3. Ejecuta en un emulador o dispositivo.
-
-> Si Android Studio necesita el `gradle-wrapper.jar`, puedes generar el wrapper o usar Gradle instalado localmente.
-
-Para la guía de desarrollo de la Semana 6, consulta `GUIDE.md`.
+`[PENDIENTE: URL del repositorio GitHub/GitLab]`

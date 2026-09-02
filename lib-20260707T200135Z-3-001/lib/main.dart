@@ -111,7 +111,7 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ],
                   ),
-                  child: Icon(Icons.note_alt_rounded, size: 60, color: const Color(0xFF6366F1)),
+                  child: const Icon(Icons.note_alt_rounded, size: 60, color: Color(0xFF6366F1)),
                 ),
                 const SizedBox(height: 30),
                 Text(
@@ -161,7 +161,7 @@ class _LoginPageState extends State<LoginPage> {
                   children: [
                     Expanded(child: Container(height: 1, color: Colors.white30)),
                     const SizedBox(width: 12),
-                    Text('¿No tienes cuenta?', style: TextStyle(color: Colors.white70)),
+                    const Text('¿No tienes cuenta?', style: TextStyle(color: Colors.white70)),
                     const SizedBox(width: 12),
                     Expanded(child: Container(height: 1, color: Colors.white30)),
                   ],

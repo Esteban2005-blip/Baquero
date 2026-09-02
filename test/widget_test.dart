@@ -1,30 +1,42 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:aplicacion_moviles/api_service.dart';
 import 'package:aplicacion_moviles/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('muestra el acceso y abre el catálogo reutilizable', (tester) async {
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(MyApp(apiService: ApiService()));
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    expect(find.text('Baquero Notes'), findsOneWidget);
+    expect(find.text('Inicia sesión'), findsOneWidget);
+    expect(find.bySemanticsLabel('Correo electrónico'), findsOneWidget);
+    expect(find.bySemanticsLabel('Contraseña'), findsOneWidget);
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    await tester.tap(find.text('Ver catálogo de componentes'));
+    await tester.pumpAndSettle();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.text('Catálogo de componentes'), findsOneWidget);
+    expect(find.text('AppButton'), findsOneWidget);
+    expect(find.text('AppTextField'), findsOneWidget);
+    semantics.dispose();
+  });
+
+  testWidgets('admite fuente ampliada sin bloquear el desplazamiento', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MediaQuery(
+        data: const MediaQueryData(textScaleFactor: 1.5),
+        child: MyApp(apiService: ApiService()),
+      ),
+    );
+
+    expect(find.byType(Scrollable), findsWidgets);
+    expect(tester.takeException(), isNull);
   });
 }

@@ -451,10 +451,10 @@ def register():
 
     # Create tokens
     access_token = create_access_token(
-        identity=user_id,
+        identity=str(user_id),
         additional_claims={'email': email, 'role': 'user'}
     )
-    refresh_token = create_refresh_token(identity=user_id)
+    refresh_token = create_refresh_token(identity=str(user_id))
 
     conn.close()
 
@@ -536,10 +536,10 @@ def login():
 
     # Create tokens
     access_token = create_access_token(
-        identity=user['id'],
+        identity=str(user['id']),
         additional_claims={'email': user['email'], 'role': user['role']}
     )
-    refresh_token = create_refresh_token(identity=user['id'])
+    refresh_token = create_refresh_token(identity=str(user['id']))
 
     return jsonify({
         'success': True,
@@ -572,7 +572,7 @@ def refresh():
       401:
         description: Token de refresco inválido o expirado
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
     claims = get_jwt()
     
     conn = get_db()
@@ -593,7 +593,7 @@ def refresh():
 
     # Create new access token
     access_token = create_access_token(
-        identity=user_id,
+        identity=str(user_id),
         additional_claims={'email': user['email'], 'role': user['role']}
     )
 
@@ -690,7 +690,7 @@ def create_note():
       409:
         description: Ya existe una nota con ese título
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
     payload = request.get_json(silent=True) or {}
     title = str(payload.get('title', '')).strip()
     content = str(payload.get('content', '')).strip()
@@ -779,7 +779,7 @@ def list_notes():
       200:
         description: Notas consultadas correctamente
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
     claims = get_jwt()
     user_role = claims.get('role', 'user')
     
@@ -860,7 +860,7 @@ def get_note(note_id):
       404:
         description: Nota no encontrada
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
     claims = get_jwt()
     user_role = claims.get('role', 'user')
     
@@ -927,7 +927,7 @@ def update_note(note_id):
       404:
         description: Nota no encontrada
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
     claims = get_jwt()
     user_role = claims.get('role', 'user')
     
@@ -1020,7 +1020,7 @@ def export_notes_async():
     """
     Cola de Trabajo para Exportación Asíncrona
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
     
     # Enviamos el trabajo pesado al worker en segundo plano (no bloquea al cliente)
     export_queue.put({'user_id': user_id, 'action': 'export_pdf'})
@@ -1054,7 +1054,7 @@ def delete_note(note_id):
       404:
         description: Nota no encontrada
     """
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
     claims = get_jwt()
     user_role = claims.get('role', 'user')
     
