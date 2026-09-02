@@ -32,7 +32,6 @@ class AppTextField extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       textField: true,
-      label: label,
       enabled: enabled,
       child: TextFormField(
         controller: controller,

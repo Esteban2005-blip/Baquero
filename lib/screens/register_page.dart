@@ -4,6 +4,7 @@ import '../api_service.dart';
 import '../components/app_button.dart';
 import '../components/app_text_field.dart';
 import '../design/app_tokens.dart';
+import '../session_storage.dart';
 import 'notes_page.dart';
 
 class RegisterPage extends StatefulWidget {
@@ -40,17 +41,23 @@ class _RegisterPageState extends State<RegisterPage> {
         _emailController.text.trim(),
         _passwordController.text,
       );
-      if (!mounted) return;
+      await SessionStorage().save(session);
+      if (!mounted) {
+        return;
+      }
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute<void>(
-          builder: (_) => NotesPage(apiService: widget.apiService, session: session),
+          builder: (_) =>
+              NotesPage(apiService: widget.apiService, session: session),
         ),
         (_) => false,
       );
     } on ApiException catch (error) {
       if (mounted) setState(() => _error = error.message);
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -76,11 +83,15 @@ class _RegisterPageState extends State<RegisterPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Text('Empieza a organizar tus ideas', style: Theme.of(context).textTheme.headlineMedium),
+                    Text('Empieza a organizar tus ideas',
+                        style: Theme.of(context).textTheme.headlineMedium),
                     const SizedBox(height: AppTokens.space2),
                     Text(
                       'La contraseña debe tener 8 caracteres, mayúscula, minúscula, número y símbolo.',
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: tokens.textMuted),
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodyLarge
+                          ?.copyWith(color: tokens.textMuted),
                     ),
                     const SizedBox(height: AppTokens.space6),
                     AppTextField(
@@ -91,7 +102,9 @@ class _RegisterPageState extends State<RegisterPage> {
                       textInputAction: TextInputAction.next,
                       validator: (value) {
                         final email = value?.trim() ?? '';
-                        if (email.isEmpty || !email.contains('@')) return 'Ingresa un correo válido';
+                        if (email.isEmpty || !email.contains('@')) {
+                          return 'Ingresa un correo válido';
+                        }
                         return null;
                       },
                     ),
@@ -105,7 +118,9 @@ class _RegisterPageState extends State<RegisterPage> {
                       onSubmitted: (_) => _register(),
                       validator: (value) {
                         final password = value ?? '';
-                        if (password.length < 8) return 'Usa al menos 8 caracteres';
+                        if (password.length < 8) {
+                          return 'Usa al menos 8 caracteres';
+                        }
                         if (!RegExp(r'[A-Z]').hasMatch(password) ||
                             !RegExp(r'[a-z]').hasMatch(password) ||
                             !RegExp(r'[0-9]').hasMatch(password) ||
@@ -119,7 +134,11 @@ class _RegisterPageState extends State<RegisterPage> {
                       const SizedBox(height: AppTokens.space4),
                       Semantics(
                         liveRegion: true,
-                        child: Text(_error!, style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: tokens.error)),
+                        child: Text(_error!,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyLarge
+                                ?.copyWith(color: tokens.error)),
                       ),
                     ],
                     const SizedBox(height: AppTokens.space6),

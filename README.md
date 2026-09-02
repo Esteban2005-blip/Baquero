@@ -61,6 +61,10 @@ El flujo del backend se verificó contra una base SQLite aislada: registro, crea
 - Los estados no dependen únicamente del color.
 - Diseño desplazable y responsivo; la fuente del sistema no se limita.
 
+## Almacenamiento y sincronización
+
+La clasificación de datos, el esquema SQLite, la retención, el almacenamiento cifrado de tokens, la cola offline, los reintentos y la política de conflictos están documentados en [STORAGE_AND_SYNC.md](STORAGE_AND_SYNC.md).
+
 ## Repositorio remoto
 
 Esta copia local no incluye metadatos Git ni una URL remota. Añada aquí el enlace de lectura antes de la entrega académica:

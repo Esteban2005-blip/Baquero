@@ -4,6 +4,7 @@ import '../api_service.dart';
 import '../components/app_button.dart';
 import '../components/app_text_field.dart';
 import '../design/app_tokens.dart';
+import '../session_storage.dart';
 import 'component_catalog_page.dart';
 import 'notes_page.dart';
 import 'register_page.dart';
@@ -42,10 +43,14 @@ class _LoginPageState extends State<LoginPage> {
         _emailController.text.trim(),
         _passwordController.text,
       );
-      if (!mounted) return;
+      await SessionStorage().save(session);
+      if (!mounted) {
+        return;
+      }
       Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(
-          builder: (_) => NotesPage(apiService: widget.apiService, session: session),
+          builder: (_) =>
+              NotesPage(apiService: widget.apiService, session: session),
         ),
       );
     } on ApiException catch (error) {
@@ -83,7 +88,20 @@ class _LoginPageState extends State<LoginPage> {
                     const SizedBox(height: AppTokens.space2),
                     Text(
                       'Accede a tus notas seguras desde la API.',
-                      style: textTheme.bodyLarge?.copyWith(color: tokens.textMuted),
+                      style: textTheme.bodyLarge
+                          ?.copyWith(color: tokens.textMuted),
+                    ),
+                    const SizedBox(height: AppTokens.space3),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                              builder: (_) => const ComponentCatalogPage()),
+                        ),
+                        icon: const Icon(Icons.widgets_outlined),
+                        label: const Text('Ver catálogo de componentes'),
+                      ),
                     ),
                     const SizedBox(height: AppTokens.space6),
                     AppTextField(
@@ -95,7 +113,9 @@ class _LoginPageState extends State<LoginPage> {
                       textInputAction: TextInputAction.next,
                       validator: (value) {
                         final email = value?.trim() ?? '';
-                        if (email.isEmpty || !email.contains('@')) return 'Ingresa un correo válido';
+                        if (email.isEmpty || !email.contains('@')) {
+                          return 'Ingresa un correo válido';
+                        }
                         return null;
                       },
                     ),
@@ -107,7 +127,9 @@ class _LoginPageState extends State<LoginPage> {
                       obscureText: true,
                       textInputAction: TextInputAction.done,
                       onSubmitted: (_) => _login(),
-                      validator: (value) => (value ?? '').isEmpty ? 'Ingresa tu contraseña' : null,
+                      validator: (value) => (value ?? '').isEmpty
+                          ? 'Ingresa tu contraseña'
+                          : null,
                     ),
                     if (_error != null) ...<Widget>[
                       const SizedBox(height: AppTokens.space4),
@@ -118,10 +140,13 @@ class _LoginPageState extends State<LoginPage> {
                           padding: const EdgeInsets.all(AppTokens.space3),
                           decoration: BoxDecoration(
                             color: tokens.error.withValues(alpha: 0.08),
-                            borderRadius: BorderRadius.circular(AppTokens.radiusSm),
+                            borderRadius:
+                                BorderRadius.circular(AppTokens.radiusSm),
                             border: Border.all(color: tokens.error),
                           ),
-                          child: Text(_error!, style: textTheme.bodyMedium?.copyWith(color: tokens.error)),
+                          child: Text(_error!,
+                              style: textTheme.bodyMedium
+                                  ?.copyWith(color: tokens.error)),
                         ),
                       ),
                     ],
@@ -139,20 +164,11 @@ class _LoginPageState extends State<LoginPage> {
                       variant: AppButtonVariant.secondary,
                       onPressed: () => Navigator.of(context).push(
                         MaterialPageRoute<void>(
-                          builder: (_) => RegisterPage(apiService: widget.apiService),
+                          builder: (_) =>
+                              RegisterPage(apiService: widget.apiService),
                         ),
                       ),
                       expand: true,
-                    ),
-                    const SizedBox(height: AppTokens.space3),
-                    Center(
-                      child: TextButton.icon(
-                        onPressed: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(builder: (_) => const ComponentCatalogPage()),
-                        ),
-                        icon: const Icon(Icons.widgets_outlined),
-                        label: const Text('Ver catálogo de componentes'),
-                      ),
                     ),
                   ],
                 ),
@@ -163,7 +179,8 @@ class _LoginPageState extends State<LoginPage> {
               header: true,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: wide ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+                crossAxisAlignment:
+                    wide ? CrossAxisAlignment.start : CrossAxisAlignment.center,
                 children: <Widget>[
                   Container(
                     width: 72,
@@ -172,14 +189,18 @@ class _LoginPageState extends State<LoginPage> {
                       color: tokens.primary,
                       borderRadius: BorderRadius.circular(AppTokens.radiusMd),
                     ),
-                    child: Icon(Icons.note_alt_outlined, color: tokens.onPrimary, size: AppTokens.space12),
+                    child: Icon(Icons.note_alt_outlined,
+                        color: tokens.onPrimary, size: AppTokens.space12),
                   ),
                   const SizedBox(height: AppTokens.space6),
-                  Text('Baquero Notes', style: textTheme.displaySmall, textAlign: TextAlign.center),
+                  Text('Baquero Notes',
+                      style: textTheme.displaySmall,
+                      textAlign: TextAlign.center),
                   const SizedBox(height: AppTokens.space3),
                   Text(
                     'Tus ideas organizadas, accesibles y protegidas.',
-                    style: textTheme.bodyLarge?.copyWith(color: tokens.textMuted),
+                    style:
+                        textTheme.bodyLarge?.copyWith(color: tokens.textMuted),
                     textAlign: wide ? TextAlign.start : TextAlign.center,
                   ),
                 ],
@@ -189,10 +210,13 @@ class _LoginPageState extends State<LoginPage> {
             return SingleChildScrollView(
               padding: const EdgeInsets.all(AppTokens.space6),
               child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight - AppTokens.space12),
+                constraints: BoxConstraints(
+                    minHeight: (constraints.maxHeight - AppTokens.space12)
+                      .clamp(0.0, double.infinity)),
                 child: Center(
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: AppTokens.contentMaxWidth),
+                    constraints: const BoxConstraints(
+                        maxWidth: AppTokens.contentMaxWidth),
                     child: wide
                         ? Row(
                             children: <Widget>[

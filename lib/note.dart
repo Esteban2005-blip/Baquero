@@ -1,6 +1,7 @@
 class Note {
   const Note({
     this.id,
+    this.clientId,
     this.userId,
     this.authorEmail,
     required this.title,
@@ -9,6 +10,7 @@ class Note {
   });
 
   final int? id;
+  final String? clientId;
   final int? userId;
   final String? authorEmail;
   final String title;
@@ -20,6 +22,7 @@ class Note {
   factory Note.fromJson(Map<String, dynamic> json) {
     return Note(
       id: json['id'] as int?,
+      clientId: json['client_id'] as String?,
       userId: json['user_id'] as int?,
       authorEmail: json['author_email'] as String?,
       title: json['title'] as String? ?? '',
@@ -31,6 +34,8 @@ class Note {
   Map<String, Object?> toMap() {
     return <String, Object?>{
       'id': id,
+      'client_id': clientId,
+      'user_id': userId,
       'title': title,
       'content': content,
       'createdAt': createdAt,

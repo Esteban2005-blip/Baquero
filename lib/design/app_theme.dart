@@ -19,15 +19,24 @@ class AppTheme {
 
   static ThemeData light() {
     const textTheme = TextTheme(
-      displaySmall: TextStyle(fontSize: 36, height: 1.15, fontWeight: FontWeight.w800),
-      headlineMedium: TextStyle(fontSize: 28, height: 1.2, fontWeight: FontWeight.w800),
-      headlineSmall: TextStyle(fontSize: 22, height: 1.25, fontWeight: FontWeight.w700),
-      titleLarge: TextStyle(fontSize: 20, height: 1.3, fontWeight: FontWeight.w700),
-      titleMedium: TextStyle(fontSize: 16, height: 1.35, fontWeight: FontWeight.w700),
-      bodyLarge: TextStyle(fontSize: 16, height: 1.5, fontWeight: FontWeight.w400),
-      bodyMedium: TextStyle(fontSize: 14, height: 1.5, fontWeight: FontWeight.w400),
-      labelLarge: TextStyle(fontSize: 15, height: 1.3, fontWeight: FontWeight.w700),
-      labelMedium: TextStyle(fontSize: 13, height: 1.3, fontWeight: FontWeight.w600),
+      displaySmall:
+          TextStyle(fontSize: 36, height: 1.15, fontWeight: FontWeight.w800),
+      headlineMedium:
+          TextStyle(fontSize: 28, height: 1.2, fontWeight: FontWeight.w800),
+      headlineSmall:
+          TextStyle(fontSize: 22, height: 1.25, fontWeight: FontWeight.w700),
+      titleLarge:
+          TextStyle(fontSize: 20, height: 1.3, fontWeight: FontWeight.w700),
+      titleMedium:
+          TextStyle(fontSize: 16, height: 1.35, fontWeight: FontWeight.w700),
+      bodyLarge:
+          TextStyle(fontSize: 16, height: 1.5, fontWeight: FontWeight.w400),
+      bodyMedium:
+          TextStyle(fontSize: 14, height: 1.5, fontWeight: FontWeight.w400),
+      labelLarge:
+          TextStyle(fontSize: 15, height: 1.3, fontWeight: FontWeight.w700),
+      labelMedium:
+          TextStyle(fontSize: 13, height: 1.3, fontWeight: FontWeight.w600),
     );
 
     return ThemeData(
@@ -44,7 +53,8 @@ class AppTheme {
         onSurface: Color(0xFF182033),
         outline: Color(0xFFC8CFDC),
       ),
-      textTheme: textTheme.apply(bodyColor: tokens.text, displayColor: tokens.text),
+      textTheme:
+          textTheme.apply(bodyColor: tokens.text, displayColor: tokens.text),
       extensions: const <ThemeExtension<dynamic>>[tokens],
       appBarTheme: const AppBarTheme(
         backgroundColor: Color(0xFFF6F7FB),
@@ -77,7 +87,7 @@ class AppTheme {
           borderSide: const BorderSide(color: Color(0xFFB42318)),
         ),
       ),
-      dialogTheme: DialogTheme(
+      dialogTheme: DialogThemeData(
         backgroundColor: tokens.surface,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(

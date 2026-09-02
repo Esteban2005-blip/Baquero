@@ -28,8 +28,12 @@ class ApiService {
   Duration _timeout = const Duration(seconds: 30);
 
   void initialize({String? baseUrl, int? timeoutSeconds}) {
-    _baseUrl = baseUrl ?? dotenv.env['API_BASE_URL'] ?? _baseUrl;
-    final configuredTimeout = int.tryParse(dotenv.env['API_TIMEOUT'] ?? '');
+    final configuredBaseUrl =
+        dotenv.isInitialized ? dotenv.env['API_BASE_URL'] : null;
+    final configuredTimeoutValue =
+        dotenv.isInitialized ? dotenv.env['API_TIMEOUT'] : null;
+    _baseUrl = baseUrl ?? configuredBaseUrl ?? _baseUrl;
+    final configuredTimeout = int.tryParse(configuredTimeoutValue ?? '');
     _timeout = Duration(seconds: timeoutSeconds ?? configuredTimeout ?? 30);
   }
 
@@ -126,16 +130,21 @@ class ApiService {
       switch (method) {
         case 'POST':
           response = await _client
-              .post(uri, headers: headers, body: jsonEncode(payload ?? <String, dynamic>{}))
+              .post(uri,
+                  headers: headers,
+                  body: jsonEncode(payload ?? <String, dynamic>{}))
               .timeout(_timeout);
           break;
         case 'PUT':
           response = await _client
-              .put(uri, headers: headers, body: jsonEncode(payload ?? <String, dynamic>{}))
+              .put(uri,
+                  headers: headers,
+                  body: jsonEncode(payload ?? <String, dynamic>{}))
               .timeout(_timeout);
           break;
         case 'DELETE':
-          response = await _client.delete(uri, headers: headers).timeout(_timeout);
+          response =
+              await _client.delete(uri, headers: headers).timeout(_timeout);
           break;
         default:
           response = await _client.get(uri, headers: headers).timeout(_timeout);
@@ -144,10 +153,13 @@ class ApiService {
       final decoded = response.body.isEmpty
           ? <String, dynamic>{}
           : jsonDecode(response.body) as Map<String, dynamic>;
-      if (response.statusCode >= 200 && response.statusCode < 300) return decoded;
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return decoded;
+      }
 
       final error = decoded['error'];
-      final details = error is Map<String, dynamic> ? error : <String, dynamic>{};
+      final details =
+          error is Map<String, dynamic> ? error : <String, dynamic>{};
       throw ApiException(
         details['message'] as String? ?? 'No se pudo completar la operación.',
         code: details['code'] as String? ?? 'HTTP_${response.statusCode}',

@@ -31,9 +31,11 @@ class _ComponentCatalogPageState extends State<ComponentCatalogPage> {
     return Scaffold(
       appBar: AppBar(title: const Text('Catálogo de componentes')),
       body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return SingleChildScrollView(
+        child: TickerMode(
+          enabled: false,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
               padding: const EdgeInsets.all(AppTokens.space6),
               child: Center(
                 child: ConstrainedBox(
@@ -145,10 +147,13 @@ class _ComponentCatalogPageState extends State<ComponentCatalogPage> {
                           builder: (context, inner) {
                             final wide = inner.maxWidth >= 880;
                             final panels = <Widget>[
-                              const StatePanel(
-                                type: StatePanelType.loading,
-                                title: 'Cargando',
-                                message: 'Consultando la API.',
+                              const TickerMode(
+                                enabled: false,
+                                child: StatePanel(
+                                  type: StatePanelType.loading,
+                                  title: 'Cargando',
+                                  message: 'Consultando la API.',
+                                ),
                               ),
                               StatePanel(
                                 type: StatePanelType.empty,
@@ -190,8 +195,9 @@ class _ComponentCatalogPageState extends State<ComponentCatalogPage> {
                   ),
                 ),
               ),
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
     );
