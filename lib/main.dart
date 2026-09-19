@@ -20,6 +20,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Baquero Notes',
+      debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       home: SessionGate(apiService: apiService),
     );

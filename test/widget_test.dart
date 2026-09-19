@@ -15,6 +15,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.text('DEBUG'), findsNothing);
     expect(find.text('Baquero Notes'), findsOneWidget);
     expect(find.text('Inicia sesión'), findsOneWidget);
     expect(find.bySemanticsLabel('Correo electrónico'), findsOneWidget);

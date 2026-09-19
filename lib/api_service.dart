@@ -105,7 +105,10 @@ class ApiService {
     Dio? dio,
     SessionStorage? storage,
     String? baseUrl,
-    bool production = kReleaseMode,
+    bool production = const bool.fromEnvironment(
+      'APP_PRODUCTION',
+      defaultValue: kReleaseMode,
+    ),
     Duration retryDelay = const Duration(milliseconds: 400),
     void Function(String)? logger,
   }) : storage = storage ?? SessionStorage(),

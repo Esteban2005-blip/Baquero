@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../api_service.dart';
 import '../components/app_button.dart';
@@ -9,6 +10,7 @@ import '../components/app_text_field.dart';
 import '../components/note_card.dart';
 import '../components/state_panel.dart';
 import '../design/app_tokens.dart';
+import '../device_capabilities.dart';
 import '../note.dart';
 import '../notes_repository.dart';
 import '../session.dart';
@@ -329,12 +331,14 @@ class NoteEditorDialog extends StatefulWidget {
 
 class _NoteEditorDialogState extends State<NoteEditorDialog> {
   final _formKey = GlobalKey<FormState>();
+  final _capabilities = const DeviceCapabilitiesService();
   late final TextEditingController _titleController;
   late final TextEditingController _contentController;
   bool _saving = false;
   String? _error;
   ApiException? _failure;
   Note? _draft;
+  String? _metaStatus;
 
   @override
   void initState() {
@@ -362,11 +366,13 @@ class _NoteEditorDialogState extends State<NoteEditorDialog> {
       _failure = null;
     });
     try {
+      final content = _contentController.text.trim();
+      final safeContent = _metaStatus == null ? content : '$content\n\n$_metaStatus';
       await widget.repository.save(
         widget.session,
         existing: _draft,
         title: _titleController.text.trim(),
-        content: _contentController.text.trim(),
+        content: safeContent,
       );
       if (mounted) {
         Navigator.pop(context, true);
@@ -383,6 +389,44 @@ class _NoteEditorDialogState extends State<NoteEditorDialog> {
       if (mounted) {
         setState(() => _saving = false);
       }
+    }
+  }
+
+  Future<void> _attachPhoto() async {
+    final result = await _capabilities.requestCameraAccess();
+    if (result.status == CapabilityStatus.granted) {
+      final image = await _capabilities.pickImageFromCamera();
+      if (image == null) {
+        setState(() => _metaStatus = 'Foto no adjuntada.');
+        return;
+      }
+      setState(() => _metaStatus = 'Foto adjuntada: ${image.name}');
+      return;
+    }
+    if (result.openSettings == true) {
+      await openAppSettings();
+    }
+    if (result.message != null) {
+      setState(() => _error = result.message);
+    }
+  }
+
+  Future<void> _attachLocation() async {
+    final result = await _capabilities.requestLocationAccess();
+    if (result.status == CapabilityStatus.granted) {
+      final position = await _capabilities.getCurrentLocation();
+      if (position == null) {
+        setState(() => _metaStatus = 'Ubicación no disponible.');
+        return;
+      }
+      setState(() => _metaStatus = 'Ubicación: ${position.latitude}, ${position.longitude}');
+      return;
+    }
+    if (result.openSettings == true) {
+      await openAppSettings();
+    }
+    if (result.message != null) {
+      setState(() => _error = result.message);
     }
   }
 
@@ -431,6 +475,35 @@ class _NoteEditorDialogState extends State<NoteEditorDialog> {
                     return null;
                   },
                 ),
+                const SizedBox(height: AppTokens.space4),
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _attachPhoto,
+                        icon: const Icon(Icons.photo_camera_outlined),
+                        label: const Text('Foto'),
+                      ),
+                    ),
+                    const SizedBox(width: AppTokens.space2),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _attachLocation,
+                        icon: const Icon(Icons.location_on_outlined),
+                        label: const Text('Ubicación'),
+                      ),
+                    ),
+                  ],
+                ),
+                if (_metaStatus != null) ...<Widget>[
+                  const SizedBox(height: AppTokens.space3),
+                  Text(
+                    _metaStatus!,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: tokens.textMuted,
+                    ),
+                  ),
+                ],
                 if (_error != null) ...<Widget>[
                   const SizedBox(height: AppTokens.space4),
                   Semantics(
