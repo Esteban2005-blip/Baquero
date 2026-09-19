@@ -1,0 +1,23 @@
+{"time": "2026-09-12T01:08:29.059091+00:00", "method": "GET", "path": "/api/health", "status": 200}
+{"time": "2026-09-12T01:14:24.624460+00:00", "method": "POST", "path": "/api/auth/login", "status": 200}
+{"time": "2026-09-12T01:14:25.196575+00:00", "method": "GET", "path": "/api/notes", "status": 200}
+{"time": "2026-09-12T01:15:19.487406+00:00", "method": "POST", "path": "/api/notes", "status": 201}
+{"time": "2026-09-12T01:15:19.595782+00:00", "method": "GET", "path": "/api/notes", "status": 200}
+{"time": "2026-09-12T01:15:43.864291+00:00", "method": "GET", "path": "/api/notes", "status": 401, "error_code": "TOKEN_EXPIRED", "field_names": []}
+{"time": "2026-09-12T01:15:43.908621+00:00", "method": "POST", "path": "/api/auth/refresh", "status": 200}
+{"time": "2026-09-12T01:15:43.937451+00:00", "method": "GET", "path": "/api/notes", "status": 200}
+{"time": "2026-09-12T01:16:00.854361+00:00", "method": "POST", "path": "/api/auth/logout", "status": 200}
+{"time": "2026-09-12T01:16:50.339800+00:00", "method": "POST", "path": "/api/auth/register", "status": 422, "error_code": "VALIDATION_ERROR", "field_names": ["email"]}
+{"time": "2026-09-12T01:17:26.297574+00:00", "method": "POST", "path": "/api/auth/login", "status": 200}
+{"time": "2026-09-12T01:17:26.409973+00:00", "method": "GET", "path": "/api/notes", "status": 200}
+{"time": "2026-09-12T01:18:33.045017+00:00", "method": "POST", "path": "/api/notes", "status": 401, "error_code": "TOKEN_EXPIRED", "field_names": []}
+{"time": "2026-09-12T01:18:33.074927+00:00", "method": "POST", "path": "/api/auth/refresh", "status": 200}
+{"time": "2026-09-12T01:18:33.117520+00:00", "method": "POST", "path": "/api/notes", "status": 201}
+{"time": "2026-09-12T01:18:33.166604+00:00", "method": "GET", "path": "/api/notes", "status": 200}
+{"time": "2026-09-12T01:18:53.685377+00:00", "method": "GET", "path": "/api/notes", "status": 200}
+{"time": "2026-09-12T01:19:53.863174+00:00", "method": "GET", "path": "/api/notes", "status": 401, "error_code": "TOKEN_EXPIRED", "field_names": []}
+{"time": "2026-09-12T01:19:53.965043+00:00", "method": "POST", "path": "/api/auth/refresh", "status": 200}
+{"time": "2026-09-12T01:19:54.007274+00:00", "method": "GET", "path": "/api/notes", "status": 200}
+{"time": "2026-09-12T01:21:39.434074+00:00", "method": "GET", "path": "/api/notes", "status": 401, "error_code": "TOKEN_EXPIRED", "field_names": []}
+{"time": "2026-09-12T01:21:39.507181+00:00", "method": "POST", "path": "/api/auth/refresh", "status": 200}
+{"time": "2026-09-12T01:21:39.562199+00:00", "method": "GET", "path": "/api/notes", "status": 200}

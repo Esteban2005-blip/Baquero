@@ -6,6 +6,8 @@ class AppTextField extends StatelessWidget {
     required this.controller,
     required this.label,
     this.hint,
+    this.errorText,
+    this.onChanged,
     this.icon,
     this.obscureText = false,
     this.keyboardType,
@@ -19,6 +21,8 @@ class AppTextField extends StatelessWidget {
   final TextEditingController controller;
   final String label;
   final String? hint;
+  final String? errorText;
+  final ValueChanged<String>? onChanged;
   final IconData? icon;
   final bool obscureText;
   final TextInputType? keyboardType;
@@ -35,6 +39,7 @@ class AppTextField extends StatelessWidget {
       enabled: enabled,
       child: TextFormField(
         controller: controller,
+        onChanged: onChanged,
         enabled: enabled,
         obscureText: obscureText,
         keyboardType: keyboardType,
@@ -45,6 +50,8 @@ class AppTextField extends StatelessWidget {
         autovalidateMode: AutovalidateMode.onUserInteraction,
         decoration: InputDecoration(
           labelText: label,
+          errorText: errorText,
+          errorMaxLines: 3,
           hintText: hint,
           prefixIcon: icon == null ? null : Icon(icon, semanticLabel: null),
         ),

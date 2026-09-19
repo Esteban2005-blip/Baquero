@@ -1,208 +1,298 @@
 import 'dart:convert';
-import 'dart:io';
-
 import 'package:path/path.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
-
 import 'note.dart';
 
 class PendingOperation {
-  const PendingOperation(
-      {required this.operationId, required this.type, required this.payload});
-
+  const PendingOperation({
+    required this.operationId,
+    required this.type,
+    required this.note,
+    this.error,
+  });
   final String operationId;
   final String type;
-  final String payload;
+  final Note note;
+  final String? error;
 }
 
+/// Local source. Cache identity and server identity are separate; SQLite never
+/// assigns a server ID to an offline note. Every query is scoped to its account.
 class DBHelper {
-  static final DBHelper instance = DBHelper._init();
-
-  static Database? _database;
-
-  DBHelper._init();
-
-  Future<Database> get database async {
-    if (_database != null) return _database!;
-    _database = await _initDB('app_db.db');
-    return _database!;
-  }
-
-  Future<Database> _initDB(String fileName) async {
-    Directory documentsDirectory = await getApplicationDocumentsDirectory();
-    final path = join(documentsDirectory.path, fileName);
-    return await openDatabase(
-      path,
-      version: 3,
-      onCreate: _createDB,
-      onUpgrade: _upgradeDB,
-    );
-  }
-
-  Future<void> _createDB(Database db, int version) async {
-    await db.execute('''
-      CREATE TABLE notes(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        client_id TEXT NOT NULL UNIQUE,
-        user_id INTEGER NOT NULL,
-        title TEXT NOT NULL,
-        content TEXT NOT NULL,
-        createdAt INTEGER NOT NULL,
-        cached_at INTEGER NOT NULL
-      )
-    ''');
-    await _createQueue(db);
-  }
-
-  Future<void> _upgradeDB(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 3) {
-      await db.execute('DROP TABLE IF EXISTS users');
-      await db.execute('DROP TABLE IF EXISTS notes');
-      await _createDB(db, newVersion);
-    }
-  }
-
-  Future<void> _createQueue(Database db) async {
-    await db.execute('''
-      CREATE TABLE pending_operations(
-        operation_id TEXT PRIMARY KEY,
-        user_id INTEGER NOT NULL,
-        type TEXT NOT NULL,
-        payload TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      )
-    ''');
-  }
-
-  Future<List<Note>> getCachedNotes(int userId) async {
-    final db = await database;
-    final result = await db.query(
-      'notes',
-      where: 'user_id = ?',
-      whereArgs: [userId],
-      orderBy: 'createdAt DESC',
-    );
-    return result.map(Note.fromMap).toList();
-  }
-
-  Future<DateTime?> getNotesCachedAt(int userId) async {
-    final db = await database;
-    final result = await db.rawQuery(
-        'SELECT MAX(cached_at) AS value FROM notes WHERE user_id = ?',
-        [userId]);
-    final value = result.first['value'];
-    return value is int ? DateTime.fromMillisecondsSinceEpoch(value) : null;
-  }
-
-  Future<void> replaceCachedNotes(
-      int userId, List<Note> notes, DateTime cachedAt) async {
-    final db = await database;
-    await db.transaction((txn) async {
-      await txn.delete('notes', where: 'user_id = ?', whereArgs: [userId]);
-      for (final note in notes) {
-        await txn.insert('notes', {
-          ...note.toMap(),
-          'client_id': note.clientId ?? 'remote-${note.id}',
-          'user_id': userId,
-          'cached_at': cachedAt.millisecondsSinceEpoch,
-        });
+  DBHelper({Database? database})
+    : _opened = database == null ? null : Future.value(database);
+  static final instance = DBHelper();
+  Future<Database>? _opened;
+  Future<Database> get database => _opened ??= _open();
+  Future<Database> _open() async => openDatabase(
+    join(await getDatabasesPath(), 'app_db.db'),
+    version: 4,
+    onCreate: createSchema,
+    onUpgrade: (db, old, version) async {
+      await createSchema(db, version);
+      // Keep the v3 tables as a migration backup. The old auto-increment `id`
+      // cannot distinguish a real server ID from an offline-only local ID.
+      if (old == 3) {
+        final pending = await db.query('pending_operations');
+        final localClients = <String>{};
+        for (final row in pending) {
+          if (row['type'] == 'create') {
+            localClients.add(
+              (jsonDecode(row['payload'] as String) as Map)['client_id']
+                  as String,
+            );
+          }
+        }
+        for (final row in await db.query('notes')) {
+          final data = Map<String, dynamic>.from(row);
+          data['client_id'] ??= 'remote-${data['id']}';
+          if (localClients.contains(data['client_id'])) data['id'] = null;
+          final note = Note.fromJson(data);
+          await _put(db, data['user_id'] as int, note);
+        }
+        for (final row in pending) {
+          final data =
+              jsonDecode(row['payload'] as String) as Map<String, dynamic>;
+          if (localClients.contains(data['client_id'])) data['id'] = null;
+          await db.insert('outbox', {
+            'operation_id': row['operation_id'],
+            'owner_id': row['user_id'],
+            'type': row['type'],
+            'payload': jsonEncode(data),
+            'created_at': row['created_at'],
+            'error':
+                'Operación anterior a Semana 13: revisa antes de reenviar para evitar duplicados.',
+          });
+        }
       }
-    });
+    },
+  );
+
+  static Future<void> createSchema(Database db, int version) async {
+    await db.execute('''CREATE TABLE IF NOT EXISTS note_cache (
+      owner_id INTEGER NOT NULL, client_id TEXT NOT NULL, payload TEXT NOT NULL,
+      PRIMARY KEY(owner_id,client_id))''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS cache_metadata (
+      owner_id INTEGER PRIMARY KEY, cached_at INTEGER NOT NULL)''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS outbox (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT, operation_id TEXT UNIQUE NOT NULL,
+      owner_id INTEGER NOT NULL, type TEXT NOT NULL, payload TEXT NOT NULL,
+      created_at INTEGER NOT NULL, error TEXT)''');
   }
 
-  Future<void> upsertCachedNote(Note note, DateTime cachedAt) async {
-    final db = await database;
-    await db.insert(
-        'notes',
-        {
-          ...note.toMap(),
-          'client_id': note.clientId,
-          'user_id': note.userId,
-          'cached_at': cachedAt.millisecondsSinceEpoch,
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace);
+  static Future<void> _put(DatabaseExecutor db, int owner, Note note) async {
+    await db.insert('note_cache', {
+      'owner_id': owner,
+      'client_id': note.clientId ?? 'remote-${note.id}',
+      'payload': jsonEncode(note.toJson()),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  Future<void> deleteCachedNote(String clientId) async {
-    final db = await database;
-    await db.delete('notes', where: 'client_id = ?', whereArgs: [clientId]);
-  }
-
-  Future<void> replaceLocalId(String clientId, int? id) async {
-    final db = await database;
-    await db.update(
-      'notes',
-      {'id': id},
-      where: 'client_id = ?',
-      whereArgs: [clientId],
+  Future<List<Note>> getCachedNotes(int owner) async {
+    final rows = await (await database).query(
+      'note_cache',
+      where: 'owner_id=?',
+      whereArgs: [owner],
     );
-  }
-
-  Future<Note?> getCachedNote(String clientId) async {
-    final db = await database;
-    final rows = await db.query('notes',
-        where: 'client_id = ?', whereArgs: [clientId], limit: 1);
-    return rows.isEmpty ? null : Note.fromMap(rows.first);
-  }
-
-  Future<void> addPendingOperation(
-      {required String operationId,
-      required int userId,
-      required String type,
-      required Note note}) async {
-    final db = await database;
-    await db.insert('pending_operations', {
-      'operation_id': operationId,
-      'user_id': userId,
-      'type': type,
-      'payload': jsonEncode(note.toMap()),
-      'created_at': DateTime.now().millisecondsSinceEpoch,
-    });
-  }
-
-  Future<List<PendingOperation>> pendingOperations(int userId) async {
-    final db = await database;
-    final rows = await db.query('pending_operations',
-        where: 'user_id = ?', whereArgs: [userId], orderBy: 'created_at ASC');
     return rows
-        .map((row) => PendingOperation(
-              operationId: row['operation_id'] as String,
-              type: row['type'] as String,
-              payload: row['payload'] as String,
-            ))
+        .map(
+          (r) => Note.fromJson(
+            jsonDecode(r['payload'] as String) as Map<String, dynamic>,
+          ),
+        )
+        .toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  }
+
+  Future<Note?> getCachedNote(int owner, String clientId) async {
+    final rows = await (await database).query(
+      'note_cache',
+      where: 'owner_id=? AND client_id=?',
+      whereArgs: [owner, clientId],
+    );
+    return rows.isEmpty
+        ? null
+        : Note.fromJson(
+            jsonDecode(rows.first['payload'] as String) as Map<String, dynamic>,
+          );
+  }
+
+  Future<DateTime?> getNotesCachedAt(int owner) async {
+    final rows = await (await database).query(
+      'cache_metadata',
+      where: 'owner_id=?',
+      whereArgs: [owner],
+    );
+    return rows.isEmpty
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(rows.first['cached_at'] as int);
+  }
+
+  Future<List<PendingOperation>> pendingOperations(int owner) async {
+    final rows = await (await database).query(
+      'outbox',
+      where: 'owner_id=?',
+      whereArgs: [owner],
+      orderBy: 'sequence',
+    );
+    return rows
+        .map(
+          (r) => PendingOperation(
+            operationId: r['operation_id'] as String,
+            type: r['type'] as String,
+            note: Note.fromJson(
+              jsonDecode(r['payload'] as String) as Map<String, dynamic>,
+            ),
+            error: r['error'] as String?,
+          ),
+        )
         .toList();
   }
 
-  Future<void> removePendingOperation(String operationId) async {
-    final db = await database;
-    await db.delete('pending_operations',
-        where: 'operation_id = ?', whereArgs: [operationId]);
-  }
-
-  Future<void> removePendingOperationsForClient(String clientId) async {
-    final db = await database;
-    final rows = await db.query('pending_operations');
-    for (final row in rows) {
-      final payload =
-          jsonDecode(row['payload'] as String) as Map<String, dynamic>;
-      if (payload['client_id'] == clientId) {
-        await db.delete('pending_operations',
-            where: 'operation_id = ?', whereArgs: [row['operation_id']]);
+  Future<void> enqueue(
+    int owner,
+    String operationId,
+    String type,
+    Note note,
+  ) async {
+    await (await database).transaction((txn) async {
+      // Explicit edits replace rejected operations; uncertain operations keep
+      // their immutable payload and idempotency key until acknowledged.
+      final rejected = await txn.query(
+        'outbox',
+        where: 'owner_id=? AND error IS NOT NULL',
+        whereArgs: [owner],
+      );
+      for (final row in rejected) {
+        final data = jsonDecode(row['payload'] as String) as Map;
+        if (data['client_id'] == note.clientId) {
+          await txn.delete(
+            'outbox',
+            where: 'operation_id=?',
+            whereArgs: [row['operation_id']],
+          );
+        }
       }
-    }
+      await txn.insert('outbox', {
+        'operation_id': operationId,
+        'owner_id': owner,
+        'type': type,
+        'payload': jsonEncode(note.toJson()),
+        'created_at': DateTime.now().millisecondsSinceEpoch,
+      });
+      if (type == 'delete') {
+        await txn.delete(
+          'note_cache',
+          where: 'owner_id=? AND client_id=?',
+          whereArgs: [owner, note.clientId],
+        );
+      } else {
+        await _put(txn, owner, note);
+      }
+    });
   }
 
-  Future<void> clearAll() async {
-    final db = await database;
-    await db.transaction((txn) async {
-      await txn.delete('notes');
-      await txn.delete('pending_operations');
+  Future<void> complete(int owner, PendingOperation op, Note? remote) async {
+    await (await database).transaction((txn) async {
+      if (remote != null) {
+        final remaining = await txn.query(
+          'outbox',
+          where: 'owner_id=? AND operation_id!=?',
+          whereArgs: [owner, op.operationId],
+        );
+        Note latest = remote.withIdentity(clientId: op.note.clientId);
+        var deleted = false;
+        for (final row in remaining) {
+          final next = Note.fromJson(
+            jsonDecode(row['payload'] as String) as Map<String, dynamic>,
+          );
+          if (next.clientId == op.note.clientId) {
+            latest = next.withIdentity(id: remote.id);
+            deleted = row['type'] == 'delete';
+            await txn.update(
+              'outbox',
+              {'payload': jsonEncode(latest.toJson())},
+              where: 'operation_id=?',
+              whereArgs: [row['operation_id']],
+            );
+          }
+        }
+        if (!deleted) await _put(txn, owner, latest);
+      }
+      await txn.delete(
+        'outbox',
+        where: 'owner_id=? AND operation_id=?',
+        whereArgs: [owner, op.operationId],
+      );
+    });
+  }
+
+  Future<void> reject(int owner, String operationId, String message) async =>
+      (await database).update(
+        'outbox',
+        {'error': message},
+        where: 'owner_id=? AND operation_id=?',
+        whereArgs: [owner, operationId],
+      );
+  Future<void> replaceCachedNotes(
+    int owner,
+    List<Note> remote,
+    DateTime now,
+  ) async {
+    await (await database).transaction((txn) async {
+      final old = await txn.query(
+        'note_cache',
+        where: 'owner_id=?',
+        whereArgs: [owner],
+      );
+      final identities = <int, String>{};
+      for (final row in old) {
+        final note = Note.fromJson(
+          jsonDecode(row['payload'] as String) as Map<String, dynamic>,
+        );
+        if (note.id != null) identities[note.id!] = row['client_id'] as String;
+      }
+      final overlay = <String, Note>{};
+      for (final note in remote) {
+        final clientId = identities[note.id] ?? 'remote-${note.id}';
+        overlay[clientId] = note.withIdentity(clientId: clientId);
+      }
+      for (final row in await txn.query(
+        'outbox',
+        where: 'owner_id=?',
+        whereArgs: [owner],
+        orderBy: 'sequence',
+      )) {
+        final note = Note.fromJson(
+          jsonDecode(row['payload'] as String) as Map<String, dynamic>,
+        );
+        if (row['type'] == 'delete') {
+          overlay.remove(note.clientId);
+        } else {
+          overlay[note.clientId!] = note;
+        }
+      }
+      await txn.delete('note_cache', where: 'owner_id=?', whereArgs: [owner]);
+      for (final note in overlay.values) {
+        await _put(txn, owner, note);
+      }
+      await txn.insert('cache_metadata', {
+        'owner_id': owner,
+        'cached_at': now.millisecondsSinceEpoch,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    });
+  }
+
+  Future<void> clearUser(int owner) async {
+    await (await database).transaction((txn) async {
+      for (final table in ['note_cache', 'outbox', 'cache_metadata']) {
+        await txn.delete(table, where: 'owner_id=?', whereArgs: [owner]);
+      }
     });
   }
 
   Future<void> close() async {
-    final db = await database;
-    db.close();
+    if (_opened != null) await (await _opened!).close();
+    _opened = null;
   }
 }

@@ -46,3 +46,27 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Runtime data and credentials
+.env
+**/.env
+!.env.example
+!**/.env.example
+*.db
+*.db-*
+*.sqlite*
+.venv/
+__pycache__/
+.pytest_cache/
+~$*
+
+# Imported duplicate snapshots are retained in Git history, not used at runtime.
+/android_native-20260707T200133Z-3-001/
+/backend-20260707T200134Z-3-001/
+/lib-20260707T200135Z-3-001/
+# Browser experiment was replaced by testing on the physical Android device.
+/web/
+/android/key.properties
+*.jks
+*.keystore
+/demo-events.jsonl

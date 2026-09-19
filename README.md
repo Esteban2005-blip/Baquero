@@ -1,72 +1,115 @@
-# Baquero Notes
+# Baquero Notes - Semana 13
 
-Aplicación Flutter de notas conectada a una API Flask segura. La interfaz se organiza mediante tokens de diseño, componentes reutilizables y estados explícitos de carga, vacío y error.
+Aplicación Flutter integrada con su backend Flask: autenticación JWT, renovación
+automática, notas con SQLite local, cola de salida e idempotencia en el servidor.
 
-## Arquitectura
+**Entrega:** [documentación técnica](SEMANA_13.md) ·
+[informe Word](evidence/semana13/Informe_Semana_13_Baquero.docx) ·
+[guion Word](evidence/semana13/Guion_Video_Semana_13_Baquero.docx) ·
+[video en Android](evidence/semana13/Video_Semana_13_Baquero.mp4) ·
+[resultados y evidencia](evidence/semana13/RESULTADOS.md) ·
+[repositorio](https://github.com/Reos98/Baquero).
 
-- `lib/design/`: tokens primitivos y semánticos, tipografía y tema Material 3.
-- `lib/components/`: `AppButton`, `AppTextField`, `NoteCard` y `StatePanel`.
-- `lib/screens/`: acceso, registro, notas y catálogo de componentes.
-- `lib/api_service.dart`: autenticación JWT y CRUD; es el único módulo cliente que conoce las rutas.
-- `backend/app.py`: API Flask, persistencia SQLite, validaciones, autorización y roles.
-- `test/`: pruebas del contrato HTTP y de interfaz/semántica.
-- `evidence/`: capturas responsivas generadas desde `app_preview.html` con los mismos tokens visuales.
+## Ejecutar el backend
 
-## Endpoints consumidos por Flutter
+Requiere Python 3.12 o posterior. Desde la raíz del repositorio:
 
-| Método | Ruta | Pantalla |
-|---|---|---|
-| POST | `/api/auth/register` | Registro |
-| POST | `/api/auth/login` | Acceso |
-| POST | `/api/auth/logout` | Cierre de sesión |
-| GET | `/api/notes` | Listado y actualización |
-| POST | `/api/notes` | Editor: nueva nota |
-| PUT | `/api/notes/{id}` | Editor: guardar cambios |
-| DELETE | `/api/notes/{id}` | Confirmación de eliminación |
-
-La API también ofrece renovación de token, exportación asíncrona y administración de usuarios; esos endpoints no tienen pantalla en esta entrega.
-
-## Ejecución
-
-1. Backend:
-
-   ```bash
-   cd backend
-   python -m pip install -r requirements.txt
-   python app.py
-   ```
-
-2. Flutter:
-
-   ```bash
-   flutter pub get
-   flutter run
-   ```
-
-El emulador Android usa por defecto `http://10.0.2.2:5000/api`, configurable en `.env`.
-
-## Pruebas
-
-```bash
-flutter test
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install -r backend/requirements.txt
+python -m backend.app
 ```
 
-El flujo del backend se verificó contra una base SQLite aislada: registro, creación, listado, actualización y eliminación. El entorno de elaboración no incluía Flutter SDK, por lo que las pruebas Dart quedan preparadas para ejecutarse en una estación con Flutter instalado.
+La API escucha en `http://127.0.0.1:5000/api`. Se crea una base SQLite local al
+iniciar. Registra una cuenta desde la aplicación; no se distribuyen usuarios ni
+contraseñas de acceso. Puedes copiar `backend/.env.example` a `backend/.env` para
+configurar el entorno. Sin secreto configurado, desarrollo genera uno aleatorio y
+requiere iniciar sesión otra vez después de reiniciar el servidor.
 
-## Accesibilidad
+## Ejecutar la aplicación Android
 
-- Pares de color principales con contraste WCAG AA.
-- Objetivos táctiles mínimos de 48 px.
-- Etiquetas semánticas, `Tooltip` y regiones vivas.
-- Los estados no dependen únicamente del color.
-- Diseño desplazable y responsivo; la fuente del sistema no se limita.
+Validada con Flutter 3.47.4 / Dart 3.13.3, Java 17 y Android SDK 36. Instala las
+dependencias y genera los modelos:
 
-## Almacenamiento y sincronización
+```powershell
+flutter pub get
+dart run build_runner build
+```
 
-La clasificación de datos, el esquema SQLite, la retención, el almacenamiento cifrado de tokens, la cola offline, los reintentos y la política de conflictos están documentados en [STORAGE_AND_SYNC.md](STORAGE_AND_SYNC.md).
+Emulador Android:
 
-## Repositorio remoto
+```powershell
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:5000/api
+```
 
-Esta copia local no incluye metadatos Git ni una URL remota. Añada aquí el enlace de lectura antes de la entrega académica:
+Celular conectado por USB con depuración autorizada:
 
-`[PENDIENTE: URL del repositorio GitHub/GitLab]`
+```powershell
+adb devices
+adb reverse tcp:5000 tcp:5000
+flutter run --dart-define=API_BASE_URL=http://127.0.0.1:5000/api
+```
+
+La variante debug usa `com.example.aplicacion_moviles.semana13` para coexistir con
+instalaciones anteriores. El backend debe permanecer activo durante las pruebas
+en línea. Para demostrar renovación, inicia el servidor con
+`ACCESS_TOKEN_SECONDS=60` antes de iniciar sesión.
+
+Para grabar el recorrido con trazas que solo contienen método, ruta y estado HTTP:
+
+```powershell
+python tools/demo_server.py --database backend/demo.sqlite --events demo-events.jsonl
+```
+
+Este servidor de demostración usa tokens de 60 segundos y una base separada. El
+registro excluye cabeceras, cuerpos y credenciales. Se usa solo en desarrollo.
+
+## Comprobaciones
+
+```powershell
+flutter analyze
+flutter test
+python -m pytest -q
+```
+
+También puedes ejecutar `tools/verify.ps1` desde una terminal que tenga Flutter y
+Python. Las pruebas usan una base temporal independiente de la base de la app.
+
+## Estructura
+
+- `lib/api_service.dart`: fuente remota, cliente Dio e interceptores.
+- `lib/session_storage.dart`: almacenamiento cifrado de credenciales.
+- `lib/note.dart`, `lib/session.dart`: modelos y serialización generada `.g.dart`.
+- `lib/db_helper.dart`: caché SQLite v4, metadatos y cola de operaciones.
+- `lib/notes_repository.dart`: sincronización y manejo de datos sin conexión.
+- `lib/screens/`: pantallas de acceso, registro y notas.
+- `backend/app.py`: API, autorización, validación 422 y recibos de idempotencia.
+- `backend/tests/`, `test/`: pruebas de contrato, cliente, SQLite y pantallas.
+- `evidence/semana13/`: evidencia correspondiente a esta entrega.
+
+Las cuatro familias de fallos, orden de interceptores, correspondencia de campos,
+seguridad y limitaciones se explican en [SEMANA_13.md](SEMANA_13.md).
+
+## Producción
+
+Define `APP_ENV=production` y un `JWT_SECRET_KEY` externo de al menos 32 caracteres
+en el backend. Ejecuta la API con un servidor WSGI y TLS. No confíes en cabeceras de
+proxy sin configurar explícitamente el proxy de despliegue.
+
+```powershell
+flutter build apk --release --dart-define=APP_ENV=production --dart-define=API_BASE_URL=https://tu-servidor/api
+```
+
+Toda compilación release exige HTTPS y desactiva registros HTTP. Configura tu
+propia firma Android en `android/key.properties` (storeFile, storePassword,
+keyAlias y keyPassword) antes de distribuir una versión pública. Ese archivo y
+los keystores se excluyen de Git; release permanece sin firmar si no se configuran.
+
+## Procedencia
+
+Trabajo basado en [Esteban2005-blip/Baquero](https://github.com/Esteban2005-blip/Baquero),
+commit `29386de`. Se conserva el historial completo. Las carpetas duplicadas con
+fechas, datos de ejecución, configuración de IDE y archivos temporales se retiran
+del árbol actual para que exista una sola implementación activa. Los informes y
+capturas antiguos corresponden a entregas previas; no acreditan la Semana 13.

@@ -4,7 +4,6 @@ import '../api_service.dart';
 import '../components/app_button.dart';
 import '../components/app_text_field.dart';
 import '../design/app_tokens.dart';
-import '../session_storage.dart';
 import 'notes_page.dart';
 
 class RegisterPage extends StatefulWidget {
@@ -22,6 +21,7 @@ class _RegisterPageState extends State<RegisterPage> {
   final _passwordController = TextEditingController();
   bool _loading = false;
   String? _error;
+  ApiException? _failure;
 
   @override
   void dispose() {
@@ -31,17 +31,18 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   Future<void> _register() async {
+    if (_loading) return;
     if (!_formKey.currentState!.validate()) return;
     setState(() {
       _loading = true;
       _error = null;
+      _failure = null;
     });
     try {
       final session = await widget.apiService.register(
         _emailController.text.trim(),
         _passwordController.text,
       );
-      await SessionStorage().save(session);
       if (!mounted) {
         return;
       }
@@ -53,7 +54,12 @@ class _RegisterPageState extends State<RegisterPage> {
         (_) => false,
       );
     } on ApiException catch (error) {
-      if (mounted) setState(() => _error = error.message);
+      if (mounted) {
+        setState(() {
+          _error = error.message;
+          _failure = error;
+        });
+      }
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -83,19 +89,22 @@ class _RegisterPageState extends State<RegisterPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Text('Empieza a organizar tus ideas',
-                        style: Theme.of(context).textTheme.headlineMedium),
+                    Text(
+                      'Empieza a organizar tus ideas',
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
                     const SizedBox(height: AppTokens.space2),
                     Text(
                       'La contraseña debe tener 8 caracteres, mayúscula, minúscula, número y símbolo.',
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodyLarge
-                          ?.copyWith(color: tokens.textMuted),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodyLarge?.copyWith(color: tokens.textMuted),
                     ),
                     const SizedBox(height: AppTokens.space6),
                     AppTextField(
                       controller: _emailController,
+                      errorText: _failure?.field('email'),
+                      onChanged: (_) => setState(() => _failure = null),
                       label: 'Correo electrónico',
                       icon: Icons.mail_outline,
                       keyboardType: TextInputType.emailAddress,
@@ -111,6 +120,8 @@ class _RegisterPageState extends State<RegisterPage> {
                     const SizedBox(height: AppTokens.space4),
                     AppTextField(
                       controller: _passwordController,
+                      errorText: _failure?.field('password'),
+                      onChanged: (_) => setState(() => _failure = null),
                       label: 'Contraseña segura',
                       icon: Icons.lock_outline,
                       obscureText: true,
@@ -134,11 +145,12 @@ class _RegisterPageState extends State<RegisterPage> {
                       const SizedBox(height: AppTokens.space4),
                       Semantics(
                         liveRegion: true,
-                        child: Text(_error!,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyLarge
-                                ?.copyWith(color: tokens.error)),
+                        child: Text(
+                          _error!,
+                          style: Theme.of(
+                            context,
+                          ).textTheme.bodyLarge?.copyWith(color: tokens.error),
+                        ),
                       ),
                     ],
                     const SizedBox(height: AppTokens.space6),

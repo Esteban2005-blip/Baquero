@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
 import '../api_service.dart';
-import '../db_helper.dart';
 import '../components/app_button.dart';
 import '../components/app_text_field.dart';
 import '../components/note_card.dart';
@@ -13,18 +12,13 @@ import '../design/app_tokens.dart';
 import '../note.dart';
 import '../notes_repository.dart';
 import '../session.dart';
-import '../session_storage.dart';
 import 'component_catalog_page.dart';
 import 'login_page.dart';
 
 enum NotesViewState { loading, ready, empty, error }
 
 class NotesPage extends StatefulWidget {
-  const NotesPage({
-    super.key,
-    required this.apiService,
-    required this.session,
-  });
+  const NotesPage({super.key, required this.apiService, required this.session});
 
   final ApiService apiService;
   final Session session;
@@ -39,18 +33,18 @@ class _NotesPageState extends State<NotesPage> {
   String _errorMessage = '';
   String _cacheAge = 'Cargando caché local';
   late final NotesRepository _repository;
+  bool _loading = false;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
 
   @override
   void initState() {
     super.initState();
     _repository = NotesRepository(api: widget.apiService);
-    _connectivitySubscription =
-        Connectivity().onConnectivityChanged.listen((results) {
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((
+      results,
+    ) {
       if (results.any((result) => result != ConnectivityResult.none)) {
-        _repository.sync(widget.session).then((_) {
-          if (mounted) _loadNotes();
-        });
+        if (mounted) _loadNotes();
       }
     });
     _loadNotes();
@@ -63,6 +57,8 @@ class _NotesPageState extends State<NotesPage> {
   }
 
   Future<void> _loadNotes() async {
+    if (_loading || !mounted) return;
+    _loading = true;
     setState(() => _state = NotesViewState.loading);
     try {
       final localNotes = await _repository.load(widget.session);
@@ -78,19 +74,28 @@ class _NotesPageState extends State<NotesPage> {
         _errorMessage = error.message;
         _state = NotesViewState.error;
       });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'No se pudo acceder al almacenamiento local.';
+          _state = NotesViewState.error;
+        });
+      }
+    } finally {
+      _loading = false;
     }
   }
 
   Future<void> _openEditor([Note? note]) async {
-    final changed = await showDialog<bool>(
+    await showDialog<bool>(
       context: context,
       builder: (_) => NoteEditorDialog(
-        apiService: widget.apiService,
+        repository: _repository,
         session: widget.session,
         note: note,
       ),
     );
-    if (changed == true) await _loadNotes();
+    if (mounted) await _loadNotes();
   }
 
   Future<void> _confirmDelete(Note note) async {
@@ -99,15 +104,19 @@ class _NotesPageState extends State<NotesPage> {
       builder: (context) => AlertDialog(
         title: const Text('Eliminar nota'),
         content: Text(
-            '¿Quieres eliminar “${note.title}”? Esta acción no se puede deshacer.'),
+          '¿Quieres eliminar “${note.title}”? Esta acción no se puede deshacer.',
+        ),
         actions: <Widget>[
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancelar')),
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: Text('Eliminar',
-                style: TextStyle(color: AppTokens.of(context).error)),
+            child: Text(
+              'Eliminar',
+              style: TextStyle(color: AppTokens.of(context).error),
+            ),
           ),
         ],
       ),
@@ -118,21 +127,21 @@ class _NotesPageState extends State<NotesPage> {
       await _loadNotes();
     } on ApiException catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error.message)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
     }
   }
 
   Future<void> _logout() async {
     try {
-      await widget.apiService.logout(widget.session.accessToken);
+      await _repository.logout(widget.session);
     } catch (_) {}
-    await DBHelper.instance.clearAll();
-    await SessionStorage().clear();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute<void>(
-          builder: (_) => LoginPage(apiService: widget.apiService)),
+        builder: (_) => LoginPage(apiService: widget.apiService),
+      ),
       (_) => false,
     );
   }
@@ -148,18 +157,21 @@ class _NotesPageState extends State<NotesPage> {
             tooltip: 'Catálogo de componentes',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                  builder: (_) => const ComponentCatalogPage()),
+                builder: (_) => const ComponentCatalogPage(),
+              ),
             ),
             icon: const Icon(Icons.widgets_outlined),
           ),
           IconButton(
-              tooltip: 'Actualizar notas',
-              onPressed: _loadNotes,
-              icon: const Icon(Icons.refresh)),
+            tooltip: 'Actualizar notas',
+            onPressed: _loadNotes,
+            icon: const Icon(Icons.refresh),
+          ),
           IconButton(
-              tooltip: 'Cerrar sesión',
-              onPressed: _logout,
-              icon: const Icon(Icons.logout)),
+            tooltip: 'Cerrar sesión',
+            onPressed: _logout,
+            icon: const Icon(Icons.logout),
+          ),
           const SizedBox(width: AppTokens.space2),
         ],
       ),
@@ -188,8 +200,9 @@ class _NotesPageState extends State<NotesPage> {
             children: <Widget>[
               Center(
                 child: ConstrainedBox(
-                  constraints:
-                      const BoxConstraints(maxWidth: AppTokens.contentMaxWidth),
+                  constraints: const BoxConstraints(
+                    maxWidth: AppTokens.contentMaxWidth,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
@@ -198,8 +211,10 @@ class _NotesPageState extends State<NotesPage> {
                         runSpacing: AppTokens.space2,
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: <Widget>[
-                          Text('Hola, ${widget.session.email}',
-                              style: Theme.of(context).textTheme.headlineSmall),
+                          Text(
+                            'Hola, ${widget.session.email}',
+                            style: Theme.of(context).textTheme.headlineSmall,
+                          ),
                           Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: AppTokens.space3,
@@ -207,25 +222,29 @@ class _NotesPageState extends State<NotesPage> {
                             ),
                             decoration: BoxDecoration(
                               color: tokens.primarySoft,
-                              borderRadius:
-                                  BorderRadius.circular(AppTokens.radiusSm),
+                              borderRadius: BorderRadius.circular(
+                                AppTokens.radiusSm,
+                              ),
                             ),
-                            child: Text(widget.session.role,
-                                style: Theme.of(context).textTheme.labelMedium),
+                            child: Text(
+                              widget.session.role,
+                              style: Theme.of(context).textTheme.labelMedium,
+                            ),
                           ),
                         ],
                       ),
                       const SizedBox(height: AppTokens.space2),
                       Text(
                         'Crea, consulta y administra el contenido asociado a tu cuenta.',
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodyLarge
-                            ?.copyWith(color: tokens.textMuted),
+                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          color: tokens.textMuted,
+                        ),
                       ),
                       const SizedBox(height: AppTokens.space2),
-                      Text(_cacheAge,
-                          style: Theme.of(context).textTheme.labelMedium),
+                      Text(
+                        _cacheAge,
+                        style: Theme.of(context).textTheme.labelMedium,
+                      ),
                       const SizedBox(height: AppTokens.space6),
                       _buildContent(),
                     ],
@@ -295,12 +314,12 @@ class _NotesPageState extends State<NotesPage> {
 class NoteEditorDialog extends StatefulWidget {
   const NoteEditorDialog({
     super.key,
-    required this.apiService,
+    required this.repository,
     required this.session,
     this.note,
   });
 
-  final ApiService apiService;
+  final NotesRepository repository;
   final Session session;
   final Note? note;
 
@@ -314,13 +333,17 @@ class _NoteEditorDialogState extends State<NoteEditorDialog> {
   late final TextEditingController _contentController;
   bool _saving = false;
   String? _error;
+  ApiException? _failure;
+  Note? _draft;
 
   @override
   void initState() {
     super.initState();
+    _draft = widget.note;
     _titleController = TextEditingController(text: widget.note?.title ?? '');
-    _contentController =
-        TextEditingController(text: widget.note?.content ?? '');
+    _contentController = TextEditingController(
+      text: widget.note?.content ?? '',
+    );
   }
 
   @override
@@ -331,44 +354,31 @@ class _NoteEditorDialogState extends State<NoteEditorDialog> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     if (!_formKey.currentState!.validate()) return;
     setState(() {
       _saving = true;
       _error = null;
+      _failure = null;
     });
     try {
-      final repository = NotesRepository(api: widget.apiService);
-      if (widget.note?.id == null) {
-        await repository.save(
-          Session(
-            userId: widget.session.userId,
-            email: widget.session.email,
-            role: widget.session.role,
-            accessToken: widget.session.accessToken,
-            refreshToken: widget.session.refreshToken,
-          ),
-          title: _titleController.text.trim(),
-          content: _contentController.text.trim(),
-        );
-      } else {
-        await repository.save(
-          Session(
-            userId: widget.session.userId,
-            email: widget.session.email,
-            role: widget.session.role,
-            accessToken: widget.session.accessToken,
-            refreshToken: widget.session.refreshToken,
-          ),
-          existing: widget.note,
-          title: _titleController.text.trim(),
-          content: _contentController.text.trim(),
-        );
-      }
+      await widget.repository.save(
+        widget.session,
+        existing: _draft,
+        title: _titleController.text.trim(),
+        content: _contentController.text.trim(),
+      );
       if (mounted) {
         Navigator.pop(context, true);
       }
     } on ApiException catch (error) {
-      if (mounted) setState(() => _error = error.message);
+      if (error.draft != null) _draft = error.draft;
+      if (mounted) {
+        setState(() {
+          _error = error.message;
+          _failure = error;
+        });
+      }
     } finally {
       if (mounted) {
         setState(() => _saving = false);
@@ -391,6 +401,8 @@ class _NoteEditorDialogState extends State<NoteEditorDialog> {
               children: <Widget>[
                 AppTextField(
                   controller: _titleController,
+                  errorText: _failure?.field('title'),
+                  onChanged: (_) => setState(() => _failure = null),
                   label: 'Título',
                   icon: Icons.title,
                   textInputAction: TextInputAction.next,
@@ -405,6 +417,8 @@ class _NoteEditorDialogState extends State<NoteEditorDialog> {
                 const SizedBox(height: AppTokens.space4),
                 AppTextField(
                   controller: _contentController,
+                  errorText: _failure?.field('content'),
+                  onChanged: (_) => setState(() => _failure = null),
                   label: 'Contenido',
                   icon: Icons.notes,
                   maxLines: 6,
@@ -431,8 +445,9 @@ class _NoteEditorDialogState extends State<NoteEditorDialog> {
       ),
       actions: <Widget>[
         TextButton(
-            onPressed: _saving ? null : () => Navigator.pop(context, false),
-            child: const Text('Cancelar')),
+          onPressed: _saving ? null : () => Navigator.pop(context, false),
+          child: const Text('Cancelar'),
+        ),
         AppButton(
           label: widget.note == null ? 'Crear nota' : 'Guardar cambios',
           onPressed: _save,

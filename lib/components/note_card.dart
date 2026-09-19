@@ -4,12 +4,7 @@ import '../design/app_tokens.dart';
 import '../note.dart';
 
 class NoteCard extends StatelessWidget {
-  const NoteCard({
-    super.key,
-    required this.note,
-    this.onEdit,
-    this.onDelete,
-  });
+  const NoteCard({super.key, required this.note, this.onEdit, this.onDelete});
 
   final Note note;
   final VoidCallback? onEdit;
@@ -84,9 +79,18 @@ class NoteCard extends StatelessWidget {
             const SizedBox(height: AppTokens.space4),
             Row(
               children: <Widget>[
-                Icon(Icons.calendar_today_outlined, size: AppTokens.space4, color: tokens.textMuted),
+                Icon(
+                  Icons.calendar_today_outlined,
+                  size: AppTokens.space4,
+                  color: tokens.textMuted,
+                ),
                 const SizedBox(width: AppTokens.space2),
-                Text(_dateLabel(), style: textTheme.labelMedium?.copyWith(color: tokens.textMuted)),
+                Text(
+                  _dateLabel(),
+                  style: textTheme.labelMedium?.copyWith(
+                    color: tokens.textMuted,
+                  ),
+                ),
                 if (note.authorEmail != null) ...<Widget>[
                   const SizedBox(width: AppTokens.space4),
                   Expanded(
@@ -94,7 +98,9 @@ class NoteCard extends StatelessWidget {
                       note.authorEmail!,
                       textAlign: TextAlign.end,
                       overflow: TextOverflow.ellipsis,
-                      style: textTheme.labelMedium?.copyWith(color: tokens.textMuted),
+                      style: textTheme.labelMedium?.copyWith(
+                        color: tokens.textMuted,
+                      ),
                     ),
                   ),
                 ],

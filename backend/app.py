@@ -1,1217 +1,373 @@
-import os
-import sqlite3
+"""Secure Notes API. Run: python -m backend.app (from repository root)."""
+import hashlib
 import json
+import os
 import re
-from datetime import datetime, timedelta
+import secrets
+import sqlite3
+import time
+from datetime import timedelta
 from functools import wraps
-from flask import Flask, jsonify, request
-from flask_jwt_extended import JWTManager, create_access_token, create_refresh_token, jwt_required, get_jwt_identity, get_jwt
-from flask_cors import CORS
-from flasgger import Swagger
+from pathlib import Path
+
 import bcrypt
 from dotenv import load_dotenv
-from email_validator import validate_email, EmailNotValidError
-
-# 🚀 OPTIMIZACIÓN 2: Importamos dependencias para Caché y Tareas Asíncronas
-from flask_caching import Cache
-import threading
-import queue
-import time
-
-# Load environment variables
-load_dotenv()
-
-app = Flask(__name__)
-
-# 🟢 OPTIMIZACIÓN 2: Configuración de Caché (Estrategia Cache-Aside)
-cache = Cache(app, config={'CACHE_TYPE': 'SimpleCache', 'CACHE_DEFAULT_TIMEOUT': 60})
-
-# Configure Flask-JWT-Extended
-app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'dev-secret-key-change-in-production')
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=1)
-app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=30)
-app.config['JSON_SORT_KEYS'] = False
-
-jwt = JWTManager(app)
-CORS(app)
-
-# 🚀 OPTIMIZACIÓN 4: Configuración de Cola para Tareas Asíncronas
-export_queue = queue.Queue()
-
-def background_worker():
-    while True:
-        task = export_queue.get()
-        if task is None: break
-        user_id = task['user_id']
-        # Simulación de operación costosa (ej. generar PDF)
-        print(f"Iniciando exportación para el usuario {user_id}...")
-        time.sleep(5)
-        print(f"Exportación finalizada para el usuario {user_id}")
-        export_queue.task_done()
-
-# Iniciamos el worker en un hilo en segundo plano
-threading.Thread(target=background_worker, daemon=True).start()
-
-# ⚡ OPTIMIZACIÓN 6: Caché en memoria para Lista Negra de Tokens (Evita consultas a BD)
-revoked_tokens_cache = set()
-
-# Swagger configuration
-swagger = Swagger(app, template={
-    "swagger": "2.0",
-    "info": {
-        "title": "Secure Notes API",
-        "version": "1.0.0",
-        "description": "API segura para gestión de notas con autenticación JWT y control de roles"
-    },
-    "host": "localhost:5000",
-    "basePath": "/api",
-    "schemes": ["http", "https"],
-    "securityDefinitions": {
-        "Bearer": {
-            "type": "apiKey",
-            "name": "Authorization",
-            "in": "header",
-            "description": "JWT Authorization header using Bearer scheme"
-        }
-    }
-})
-
-DB_PATH = os.path.join(os.path.dirname(__file__), 'notes.db')
-
-# Roles and permissions
-ROLES = {
-    'user': ['view_own_notes', 'create_notes', 'update_own_notes', 'delete_own_notes'],
-    'admin': ['view_all_notes', 'create_notes', 'update_all_notes', 'delete_all_notes', 'manage_users']
-}
+from email_validator import EmailNotValidError, validate_email
+from flask import Flask, g, jsonify, request
+from flask_cors import CORS
+from flask_jwt_extended import (JWTManager, create_access_token, create_refresh_token,
+                                get_jwt, get_jwt_identity, jwt_required)
+from werkzeug.exceptions import HTTPException
 
 
-def get_db():
-    """Get database connection with row factory"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+def create_app(test_config=None):
+    load_dotenv(Path(__file__).with_name('.env'))
+    app = Flask(__name__)
+    production = os.getenv('APP_ENV', 'development') == 'production'
+    secret = os.getenv('JWT_SECRET_KEY')
+    if production and (not secret or len(secret) < 32):
+        raise RuntimeError('Production requires JWT_SECRET_KEY of at least 32 characters')
+    app.config.update(
+        JWT_SECRET_KEY=secret or secrets.token_urlsafe(48),
+        JWT_ACCESS_TOKEN_EXPIRES=timedelta(seconds=int(os.getenv('ACCESS_TOKEN_SECONDS', '3600'))),
+        JWT_REFRESH_TOKEN_EXPIRES=timedelta(days=30),
+        DATABASE=os.getenv('DATABASE_PATH', str(Path(__file__).with_name('notes.db'))),
+        REQUIRE_HTTPS=production, MAX_CONTENT_LENGTH=64 * 1024,
+    )
+    if test_config:
+        app.config.update(test_config)
+    app.json.sort_keys = False
+    CORS(app, resources={r'/api/*': {'origins': os.getenv(
+        'CORS_ORIGINS', 'http://localhost:8080,http://127.0.0.1:8080').split(',')}})
+    jwt = JWTManager(app)
 
+    def db():
+        if 'db' not in g:
+            g.db = sqlite3.connect(app.config['DATABASE'], timeout=10)
+            g.db.row_factory = sqlite3.Row
+            g.db.execute('PRAGMA foreign_keys = ON')
+        return g.db
 
-def init_db():
-    """Initialize database tables"""
-    conn = get_db()
-    cursor = conn.cursor()
-    
-    # Create users table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'user',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            is_active BOOLEAN DEFAULT 1
-        )
-    ''')
-    
-    # Create notes table with user_id and updated_at
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS notes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            title TEXT NOT NULL,
-            content TEXT NOT NULL,
-            createdAt INTEGER NOT NULL,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-            UNIQUE(user_id, title)
-        )
-    ''')
-    
-    # Create token blacklist for logout
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS token_blacklist (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            jti TEXT UNIQUE NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            expires_at TIMESTAMP NOT NULL
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
+    @app.teardown_appcontext
+    def close_db(_error):
+        connection = g.pop('db', None)
+        if connection is not None:
+            connection.close()
 
+    with app.app_context():
+        db().executescript('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user',
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+                title TEXT NOT NULL, content TEXT NOT NULL, createdAt INTEGER NOT NULL,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE, UNIQUE(user_id, title)
+            );
+            CREATE INDEX IF NOT EXISTS notes_owner_date ON notes(user_id, createdAt DESC, id DESC);
+            CREATE TABLE IF NOT EXISTS sessions (
+                id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS idempotency (
+                user_id INTEGER NOT NULL, key TEXT NOT NULL, fingerprint TEXT NOT NULL,
+                response TEXT NOT NULL, PRIMARY KEY(user_id, key),
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        ''')
+        db().commit()
 
-def clear_notes():
-    """Clear all notes from database"""
-    conn = get_db()
-    conn.execute('DELETE FROM notes')
-    conn.commit()
-    conn.close()
+    def error(code, message, status, fields=None):
+        details = {'code': code, 'message': message}
+        if fields:
+            details['fields'] = fields
+        return jsonify(success=False, error=details), status
 
+    def validation(fields):
+        return error('VALIDATION_ERROR', 'Revisa los campos indicados.', 422, fields)
 
-def clear_users():
-    """Clear all users from database"""
-    conn = get_db()
-    conn.execute('DELETE FROM users')
-    conn.commit()
-    conn.close()
+    @app.before_request
+    def enforce_https():
+        # No trust in arbitrary X-Forwarded-Proto headers. TLS must be configured
+        # on the WSGI server or through an explicitly trusted deployment proxy.
+        if app.config['REQUIRE_HTTPS'] and not request.is_secure:
+            return error('HTTPS_REQUIRED', 'Se requiere una conexión HTTPS.', 400)
 
+    @app.after_request
+    def security_headers(response):
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        if app.config['REQUIRE_HTTPS']:
+            response.headers['Strict-Transport-Security'] = 'max-age=31536000'
+        return response
 
-# Password hashing utilities
-def hash_password(password):
-    """Hash password using bcrypt"""
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    @jwt.expired_token_loader
+    def expired(_header, _payload):
+        return error('TOKEN_EXPIRED', 'La sesión necesita renovarse.', 401)
 
+    @jwt.invalid_token_loader
+    def invalid(_reason):
+        return error('INVALID_TOKEN', 'La credencial no es válida.', 401)
 
-def verify_password(password, password_hash):
-    """Verify password against hash"""
-    return bcrypt.checkpw(password.encode('utf-8'), password_hash.encode('utf-8'))
+    @jwt.unauthorized_loader
+    def missing(_reason):
+        return error('UNAUTHORIZED', 'Inicia sesión para continuar.', 401)
 
+    @jwt.revoked_token_loader
+    def revoked(_header, _payload):
+        return error('SESSION_EXPIRED', 'La sesión terminó. Vuelve a iniciar sesión.', 401)
 
-# Validation utilities
-def validate_email_format(email):
-    """Validate email format"""
-    try:
-        validate_email(email)
-        return True
-    except EmailNotValidError:
-        return False
+    @jwt.token_in_blocklist_loader
+    def revoked_session(_header, payload):
+        session = db().execute('''SELECT s.id FROM sessions s JOIN users u ON u.id=s.user_id
+            WHERE s.id=? AND s.user_id=? AND s.expires_at>? AND u.is_active=1''',
+            (payload.get('sid'), payload['sub'], int(time.time()))).fetchone()
+        return session is None
 
+    @app.errorhandler(HTTPException)
+    def http_error(exc):
+        return error(f'HTTP_{exc.code}', 'No se pudo procesar la solicitud.', exc.code)
 
-def validate_password(password):
-    """
-    Validate password strength
-    Requirements: at least 8 chars, 1 uppercase, 1 lowercase, 1 digit, 1 special char
-    """
-    if len(password) < 8:
-        return False, "La contraseña debe tener al menos 8 caracteres"
-    
-    if not re.search(r'[A-Z]', password):
-        return False, "La contraseña debe contener al menos una mayúscula"
-    
-    if not re.search(r'[a-z]', password):
-        return False, "La contraseña debe contener al menos una minúscula"
-    
-    if not re.search(r'[0-9]', password):
-        return False, "La contraseña debe contener al menos un número"
-    
-    if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
-        return False, "La contraseña debe contener al menos un carácter especial"
-    
-    return True, "Contraseña válida"
+    @app.errorhandler(sqlite3.IntegrityError)
+    def constraint_error(_exc):
+        db().rollback()
+        return error('CONFLICT', 'El registro ya existe o fue modificado.', 409)
 
+    @app.errorhandler(Exception)
+    def unexpected(exc):
+        if app.testing:
+            raise exc
+        app.logger.error('Unhandled API error: %s', type(exc).__name__)
+        return error('INTERNAL_SERVER_ERROR', 'El servidor no pudo completar la operación.', 500)
 
-# Authorization decorators
-def role_required(required_role):
-    """Decorator to check if user has required role"""
-    def decorator(fn):
+    def body():
+        value = request.get_json(silent=True)
+        return value if isinstance(value, dict) else {}
+
+    def current_user():
+        return db().execute('SELECT * FROM users WHERE id=?', (get_jwt_identity(),)).fetchone()
+
+    def admin_required(fn):
         @wraps(fn)
-        def wrapper(*args, **kwargs):
-            claims = get_jwt()
-            user_role = claims.get('role', 'user')
-            
-            if user_role != required_role and user_role != 'admin':
-                return jsonify({
-                    'success': False,
-                    'error': {
-                        'code': 'INSUFFICIENT_PERMISSIONS',
-                        'message': f'Se requiere rol {required_role}'
-                    }
-                }), 403
-            
+        def wrapped(*args, **kwargs):
+            if current_user()['role'] != 'admin':
+                return error('FORBIDDEN', 'No tienes permiso para realizar esta acción.', 403)
             return fn(*args, **kwargs)
-        return wrapper
-    return decorator
-
-
-def permission_required(permission):
-    """Decorator to check if user has specific permission"""
-    def decorator(fn):
-        @wraps(fn)
-        def wrapper(*args, **kwargs):
-            claims = get_jwt()
-            user_role = claims.get('role', 'user')
-            user_permissions = ROLES.get(user_role, [])
-            
-            if permission not in user_permissions:
-                return jsonify({
-                    'success': False,
-                    'error': {
-                        'code': 'INSUFFICIENT_PERMISSIONS',
-                        'message': 'No tiene permiso para realizar esta acción'
-                    }
-                }), 403
-            
-            return fn(*args, **kwargs)
-        return wrapper
-    return decorator
-
-
-@jwt.token_in_blocklist_loader
-def check_if_token_revoked(jwt_header, jwt_data):
-    """Check if token is in blacklist"""
-    # ⚡ OPTIMIZACIÓN 6: Verificación en memoria (Evita consulta SQLite redundante en cada request)
-    jti = jwt_data['jti']
-    return jti in revoked_tokens_cache
-
-
-@app.before_request
-def setup_db():
-    """Initialize database before each request"""
-    init_db()
-
-
-# Error handlers
-@app.errorhandler(400)
-def bad_request(error):
-    return jsonify({
-        'success': False,
-        'error': {
-            'code': 'BAD_REQUEST',
-            'message': 'Solicitud inválida'
-        }
-    }), 400
-
-
-@app.errorhandler(401)
-def unauthorized(error):
-    return jsonify({
-        'success': False,
-        'error': {
-            'code': 'UNAUTHORIZED',
-            'message': 'Usuario no autenticado'
-        }
-    }), 401
-
-
-@app.errorhandler(403)
-def forbidden(error):
-    return jsonify({
-        'success': False,
-        'error': {
-            'code': 'FORBIDDEN',
-            'message': 'Sin permisos para realizar esta acción'
-        }
-    }), 403
-
-
-@app.errorhandler(404)
-def not_found(error):
-    return jsonify({
-        'success': False,
-        'error': {
-            'code': 'NOT_FOUND',
-            'message': 'Recurso no encontrado'
-        }
-    }), 404
-
-
-@app.errorhandler(405)
-def method_not_allowed(error):
-    return jsonify({
-        'success': False,
-        'error': {
-            'code': 'METHOD_NOT_ALLOWED',
-            'message': 'Método no permitido'
-        }
-    }), 405
-
-
-@app.errorhandler(409)
-def conflict(error):
-    return jsonify({
-        'success': False,
-        'error': {
-            'code': 'CONFLICT',
-            'message': 'Conflicto con recurso existente'
-        }
-    }), 409
-
-
-@app.errorhandler(422)
-def unprocessable_entity(error):
-    return jsonify({
-        'success': False,
-        'error': {
-            'code': 'UNPROCESSABLE_ENTITY',
-            'message': 'Entidad no procesable'
-        }
-    }), 422
-
-
-@app.errorhandler(500)
-def internal_server_error(error):
-    return jsonify({
-        'success': False,
-        'error': {
-            'code': 'INTERNAL_SERVER_ERROR',
-            'message': 'Error interno del servidor'
-        }
-    }), 500
-
-
-# ==================== AUTHENTICATION ENDPOINTS ====================
-
-@app.route('/api/auth/register', methods=['POST'])
-def register():
-    """
-    Register a new user
-    ---
-    tags:
-      - Authentication
-    parameters:
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            email:
-              type: string
-              example: user@example.com
-            password:
-              type: string
-              example: SecurePass123!
-          required:
-            - email
-            - password
-    responses:
-      201:
-        description: Usuario registrado exitosamente
-      400:
-        description: Datos inválidos o incompletos
-      409:
-        description: El email ya está registrado
-    """
-    payload = request.get_json(silent=True) or {}
-    email = str(payload.get('email', '')).strip().lower()
-    password = str(payload.get('password', ''))
-
-    # Validate email
-    if not email:
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'VALIDATION_ERROR',
-                'message': 'El email es obligatorio'
-            }
-        }), 400
-
-    if not validate_email_format(email):
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'VALIDATION_ERROR',
-                'message': 'El formato del email no es válido'
-            }
-        }), 400
-
-    # Validate password
-    if not password:
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'VALIDATION_ERROR',
-                'message': 'La contraseña es obligatoria'
-            }
-        }), 400
-
-    is_valid, message = validate_password(password)
-    if not is_valid:
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'VALIDATION_ERROR',
-                'message': message
-            }
-        }), 400
-
-    # Check if user already exists
-    conn = get_db()
-    existing_user = conn.execute(
-        'SELECT id FROM users WHERE email = ?',
-        (email,)
-    ).fetchone()
-
-    if existing_user:
-        conn.close()
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'DUPLICATE_EMAIL',
-                'message': 'El email ya está registrado'
-            }
-        }), 409
-
-    # Hash password and create user
-    password_hash = hash_password(password)
-    cursor = conn.execute(
-        'INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)',
-        (email, password_hash, 'user')
-    )
-    conn.commit()
-    user_id = cursor.lastrowid
-
-    # Create tokens
-    access_token = create_access_token(
-        identity=str(user_id),
-        additional_claims={'email': email, 'role': 'user'}
-    )
-    refresh_token = create_refresh_token(identity=str(user_id))
-
-    conn.close()
-
-    return jsonify({
-        'success': True,
-        'message': 'Usuario registrado exitosamente',
-        'data': {
-            'user_id': user_id,
-            'email': email,
-            'role': 'user',
-            'access_token': access_token,
-            'refresh_token': refresh_token,
-            'token_type': 'Bearer',
-            'expires_in': 3600
-        }
-    }), 201
-
-
-@app.route('/api/auth/login', methods=['POST'])
-def login():
-    """
-    Login user and return tokens
-    ---
-    tags:
-      - Authentication
-    parameters:
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            email:
-              type: string
-              example: user@example.com
-            password:
-              type: string
-              example: SecurePass123!
-          required:
-            - email
-            - password
-    responses:
-      200:
-        description: Inicio de sesión exitoso
-      400:
-        description: Datos inválidos
-      401:
-        description: Credenciales incorrectas
-    """
-    payload = request.get_json(silent=True) or {}
-    email = str(payload.get('email', '')).strip().lower()
-    password = str(payload.get('password', ''))
-
-    if not email or not password:
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'VALIDATION_ERROR',
-                'message': 'Email y contraseña son obligatorios'
-            }
-        }), 400
-
-    # Find user
-    conn = get_db()
-    user = conn.execute(
-        'SELECT id, email, password_hash, role FROM users WHERE email = ? AND is_active = 1',
-        (email,)
-    ).fetchone()
-    conn.close()
-
-    if not user or not verify_password(password, user['password_hash']):
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'INVALID_CREDENTIALS',
-                'message': 'Email o contraseña incorrectos'
-            }
-        }), 401
-
-    # Create tokens
-    access_token = create_access_token(
-        identity=str(user['id']),
-        additional_claims={'email': user['email'], 'role': user['role']}
-    )
-    refresh_token = create_refresh_token(identity=str(user['id']))
-
-    return jsonify({
-        'success': True,
-        'message': 'Inicio de sesión exitoso',
-        'data': {
-            'user_id': user['id'],
-            'email': user['email'],
-            'role': user['role'],
-            'access_token': access_token,
-            'refresh_token': refresh_token,
-            'token_type': 'Bearer',
-            'expires_in': 3600
-        }
-    }), 200
-
-
-@app.route('/api/auth/refresh', methods=['POST'])
-@jwt_required(refresh=True)
-def refresh():
-    """
-    Refresh access token using refresh token
-    ---
-    tags:
-      - Authentication
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: Token renovado exitosamente
-      401:
-        description: Token de refresco inválido o expirado
-    """
-    user_id = int(get_jwt_identity())
-    claims = get_jwt()
-    
-    conn = get_db()
-    user = conn.execute(
-        'SELECT id, email, role FROM users WHERE id = ? AND is_active = 1',
-        (user_id,)
-    ).fetchone()
-    conn.close()
-
-    if not user:
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'USER_NOT_FOUND',
-                'message': 'Usuario no encontrado'
-            }
-        }), 401
-
-    # Create new access token
-    access_token = create_access_token(
-        identity=str(user_id),
-        additional_claims={'email': user['email'], 'role': user['role']}
-    )
-
-    return jsonify({
-        'success': True,
-        'message': 'Token renovado exitosamente',
-        'data': {
-            'access_token': access_token,
-            'token_type': 'Bearer',
-            'expires_in': 3600
-        }
-    }), 200
-
-
-@app.route('/api/auth/logout', methods=['POST'])
-@jwt_required()
-def logout():
-    """
-    Logout user by blacklisting token
-    ---
-    tags:
-      - Authentication
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: Cierre de sesión exitoso
-    """
-    jti = get_jwt()['jti']
-    exp = get_jwt()['exp']
-    
-    # ⚡ OPTIMIZACIÓN 6: Añadimos a la memoria RAM en lugar de la BD
-    revoked_tokens_cache.add(jti)
-    
-    conn = get_db()
-    conn.execute(
-        'INSERT INTO token_blacklist (jti, expires_at) VALUES (?, datetime(?, "unixepoch"))',
-        (jti, exp)
-    )
-    conn.commit()
-    conn.close()
-
-    return jsonify({
-        'success': True,
-        'message': 'Cierre de sesión exitoso'
-    }), 200
-
-@app.errorhandler(500)
-def internal_server_error(_error):
-    return jsonify({
-        'success': False,
-        'error': {
-            'code': 'INTERNAL_SERVER_ERROR',
-            'message': 'Error interno del servidor'
-        }
-    }), 500
-
-
-
-# ==================== NOTES ENDPOINTS ====================
-
-@app.route('/api/notes', methods=['POST'])
-@jwt_required()
-@permission_required('create_notes')
-def create_note():
-    """
-    Create a new note for authenticated user
-    ---
-    tags:
-      - Notes
-    security:
-      - Bearer: []
-    parameters:
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            title:
-              type: string
-              example: Mi nota importante
-            content:
-              type: string
-              example: Contenido de la nota
-            createdAt:
-              type: integer
-              example: 1710000000000
-    responses:
-      201:
-        description: Nota creada exitosamente
-      400:
-        description: Datos inválidos
-      409:
-        description: Ya existe una nota con ese título
-    """
-    user_id = int(get_jwt_identity())
-    payload = request.get_json(silent=True) or {}
-    title = str(payload.get('title', '')).strip()
-    content = str(payload.get('content', '')).strip()
-    created_at = payload.get('createdAt')
-
-    # Validations
-    if not title or len(title) < 3 or len(title) > 100:
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'VALIDATION_ERROR',
-                'message': 'El título es obligatorio y debe tener entre 3 y 100 caracteres'
-            }
-        }), 400
-
-    if not content or len(content) < 1 or len(content) > 5000:
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'VALIDATION_ERROR',
-                'message': 'El contenido es obligatorio y debe tener máximo 5000 caracteres'
-            }
-        }), 400
-
-    if created_at is None:
-        created_at = int(__import__('time').time() * 1000)
-
-    # Check for duplicate title for this user
-    conn = get_db()
-    existing = conn.execute(
-        'SELECT id FROM notes WHERE user_id = ? AND LOWER(title) = LOWER(?)',
-        (user_id, title)
-    ).fetchone()
-
-    if existing:
-        conn.close()
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'DUPLICATE_TITLE',
-                'message': 'Ya existe una nota con ese título'
-            }
-        }), 409
-
-    # Create note
-    cursor = conn.execute(
-        'INSERT INTO notes (user_id, title, content, createdAt) VALUES (?, ?, ?, ?)',
-        (user_id, title, content, created_at)
-    )
-    conn.commit()
-    note_id = cursor.lastrowid
-    row = conn.execute('SELECT id, user_id, title, content, createdAt FROM notes WHERE id = ?', (note_id,)).fetchone()
-    conn.close()
-
-    # 🟢 OPTIMIZACIÓN 2: Invalidación explícita del caché al crear una nota
-    cache.delete(f'notes_user_{user_id}')
-    cache.delete('notes_admin_all')
-
-    return jsonify({
-        'success': True,
-        'message': 'Nota creada correctamente',
-        'data': dict(row)
-    }), 201
-
-
-@app.route('/api/notes', methods=['GET'])
-@jwt_required()
-def list_notes():
-    """
-    List notes for authenticated user (or all if admin)
-    ---
-    tags:
-      - Notes
-    security:
-      - Bearer: []
-    parameters:
-      - name: page
-        in: query
-        type: integer
-        default: 1
-      - name: limit
-        in: query
-        type: integer
-        default: 10
-    responses:
-      200:
-        description: Notas consultadas correctamente
-    """
-    user_id = int(get_jwt_identity())
-    claims = get_jwt()
-    user_role = claims.get('role', 'user')
-    
-    page = request.args.get('page', default=1, type=int)
-    limit = request.args.get('limit', default=10, type=int)
-    page = max(1, page)
-    limit = max(1, min(limit, 50))
-
-    # 🟢 OPTIMIZACIÓN 2: Revisar si existe en caché (Estrategia Cache-aside)
-    cache_key = f'notes_admin_all_{page}_{limit}' if user_role == 'admin' else f'notes_user_{user_id}_{page}_{limit}'
-    cached_response = cache.get(cache_key)
-    if cached_response:
-        return jsonify(cached_response), 200
-
-    conn = get_db()
-    
-    # Admin can see all notes, user can only see their own
-    # 🚀 OPTIMIZACIÓN 3 y 5: Eager Loading usando JOIN para traer el email sin causar consultas N+1
-    if user_role == 'admin':
-        total = conn.execute('SELECT COUNT(*) as total FROM notes').fetchone()['total']
-        rows = conn.execute(
-            '''SELECT notes.id, notes.user_id, users.email as author_email, notes.title, notes.content, notes.createdAt 
-               FROM notes 
-               JOIN users ON notes.user_id = users.id 
-               ORDER BY notes.createdAt DESC LIMIT ? OFFSET ?''',
-            (limit, (page - 1) * limit)
-        ).fetchall()
-    else:
-        total = conn.execute('SELECT COUNT(*) as total FROM notes WHERE user_id = ?', (user_id,)).fetchone()['total']
-        rows = conn.execute(
-            '''SELECT notes.id, notes.user_id, users.email as author_email, notes.title, notes.content, notes.createdAt 
-               FROM notes 
-               JOIN users ON notes.user_id = users.id 
-               WHERE notes.user_id = ? 
-               ORDER BY notes.createdAt DESC LIMIT ? OFFSET ?''',
-            (user_id, limit, (page - 1) * limit)
-        ).fetchall()
-    
-    conn.close()
-
-    response_data = {
-        'success': True,
-        'message': 'Notas consultadas correctamente',
-        'data': [dict(row) for row in rows],
-        'pagination': {
-            'page': page,
-            'limit': limit,
-            'total': total
-        }
-    }
-    
-    # 🟢 OPTIMIZACIÓN 2: Guardar en caché el resultado (TTL por defecto 60s)
-    cache.set(cache_key, response_data)
-
-    return jsonify(response_data), 200
-
-
-@app.route('/api/notes/<int:note_id>', methods=['GET'])
-@jwt_required()
-def get_note(note_id):
-    """
-    Get a specific note
-    ---
-    tags:
-      - Notes
-    security:
-      - Bearer: []
-    parameters:
-      - name: note_id
-        in: path
-        type: integer
-        required: true
-    responses:
-      200:
-        description: Nota consultada correctamente
-      403:
-        description: No tiene permiso para ver esta nota
-      404:
-        description: Nota no encontrada
-    """
-    user_id = int(get_jwt_identity())
-    claims = get_jwt()
-    user_role = claims.get('role', 'user')
-    
-    conn = get_db()
-    row = conn.execute('SELECT id, user_id, title, content, createdAt FROM notes WHERE id = ?', (note_id,)).fetchone()
-    conn.close()
-
-    if row is None:
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'NOT_FOUND',
-                'message': 'La nota no existe'
-            }
-        }), 404
-
-    # Authorization: user can only see own notes, admin can see all
-    if user_role != 'admin' and row['user_id'] != user_id:
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'FORBIDDEN',
-                'message': 'No tiene permiso para ver esta nota'
-            }
-        }), 403
-
-    return jsonify({
-        'success': True,
-        'message': 'Nota consultada correctamente',
-        'data': dict(row)
-    }), 200
-
-
-@app.route('/api/notes/<int:note_id>', methods=['PUT'])
-@jwt_required()
-def update_note(note_id):
-    """
-    Update a note
-    ---
-    tags:
-      - Notes
-    security:
-      - Bearer: []
-    parameters:
-      - name: note_id
-        in: path
-        type: integer
-        required: true
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            title:
-              type: string
-            content:
-              type: string
-    responses:
-      200:
-        description: Nota actualizada correctamente
-      403:
-        description: No tiene permiso para actualizar esta nota
-      404:
-        description: Nota no encontrada
-    """
-    user_id = int(get_jwt_identity())
-    claims = get_jwt()
-    user_role = claims.get('role', 'user')
-    
-    payload = request.get_json(silent=True) or {}
-    title = str(payload.get('title', '')).strip()
-    content = str(payload.get('content', '')).strip()
-
-    # Validations
-    if not title or len(title) < 3 or len(title) > 100:
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'VALIDATION_ERROR',
-                'message': 'El título es obligatorio y debe tener entre 3 y 100 caracteres'
-            }
-        }), 400
-
-    if not content or len(content) < 1 or len(content) > 5000:
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'VALIDATION_ERROR',
-                'message': 'El contenido es obligatorio y debe tener máximo 5000 caracteres'
-            }
-        }), 400
-
-    conn = get_db()
-    existing = conn.execute('SELECT id, user_id FROM notes WHERE id = ?', (note_id,)).fetchone()
-
-    if existing is None:
-        conn.close()
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'NOT_FOUND',
-                'message': 'La nota no existe'
-            }
-        }), 404
-
-    # Authorization: user can only update own notes, admin can update all
-    if user_role != 'admin' and existing['user_id'] != user_id:
-        conn.close()
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'FORBIDDEN',
-                'message': 'No tiene permiso para actualizar esta nota'
-            }
-        }), 403
-
-    # Check for duplicate title (excluding current note)
-    duplicate = conn.execute(
-        'SELECT id FROM notes WHERE user_id = ? AND LOWER(title) = LOWER(?) AND id != ?',
-        (existing['user_id'], title, note_id)
-    ).fetchone()
-
-    if duplicate:
-        conn.close()
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'DUPLICATE_TITLE',
-                'message': 'Ya existe otra nota con ese título'
-            }
-        }), 409
-
-    # Update note
-    conn.execute(
-        'UPDATE notes SET title = ?, content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-        (title, content, note_id)
-    )
-    conn.commit()
-    row = conn.execute('SELECT id, user_id, title, content, createdAt FROM notes WHERE id = ?', (note_id,)).fetchone()
-    conn.close()
-
-    # 🟢 OPTIMIZACIÓN 2: Invalidación explícita del caché al actualizar
-    cache.delete(f'notes_user_{user_id}')
-    cache.delete('notes_admin_all')
-
-    return jsonify({
-        'success': True,
-        'message': 'Nota actualizada correctamente',
-        'data': dict(row)
-    }), 200
-
-# 🚀 OPTIMIZACIÓN 4: Tarea Asíncrona mediante Cola de Trabajo (Worker)
-@app.route('/api/notes/export', methods=['POST'])
-@jwt_required()
-def export_notes_async():
-    """
-    Cola de Trabajo para Exportación Asíncrona
-    """
-    user_id = int(get_jwt_identity())
-    
-    # Enviamos el trabajo pesado al worker en segundo plano (no bloquea al cliente)
-    export_queue.put({'user_id': user_id, 'action': 'export_pdf'})
-    
-    return jsonify({
-        'success': True,
-        'message': 'Su exportación ha comenzado. Le notificaremos cuando termine.'
-    }), 202
-
-
-@app.route('/api/notes/<int:note_id>', methods=['DELETE'])
-@jwt_required()
-def delete_note(note_id):
-    """
-    Delete a note
-    ---
-    tags:
-      - Notes
-    security:
-      - Bearer: []
-    parameters:
-      - name: note_id
-        in: path
-        type: integer
-        required: true
-    responses:
-      200:
-        description: Nota eliminada correctamente
-      403:
-        description: No tiene permiso para eliminar esta nota
-      404:
-        description: Nota no encontrada
-    """
-    user_id = int(get_jwt_identity())
-    claims = get_jwt()
-    user_role = claims.get('role', 'user')
-    
-    conn = get_db()
-    existing = conn.execute('SELECT id, user_id FROM notes WHERE id = ?', (note_id,)).fetchone()
-
-    if existing is None:
-        conn.close()
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'NOT_FOUND',
-                'message': 'La nota no existe'
-            }
-        }), 404
-
-    # Authorization: user can only delete own notes, admin can delete all
-    if user_role != 'admin' and existing['user_id'] != user_id:
-        conn.close()
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'FORBIDDEN',
-                'message': 'No tiene permiso para eliminar esta nota'
-            }
-        }), 403
-
-    conn.execute('DELETE FROM notes WHERE id = ?', (note_id,))
-    conn.commit()
-    conn.close()
-
-    # 🟢 OPTIMIZACIÓN 2: Invalidación explícita del caché al eliminar
-    cache.delete(f'notes_user_{user_id}')
-    cache.delete('notes_admin_all')
-
-    return jsonify({
-        'success': True,
-        'message': 'Nota eliminada correctamente'
-    }), 200
-
-
-# ==================== ADMIN ENDPOINTS ====================
-
-@app.route('/api/admin/users', methods=['GET'])
-@jwt_required()
-@role_required('admin')
-def list_users():
-    """
-    List all users (admin only)
-    ---
-    tags:
-      - Admin
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: Usuarios consultados correctamente
-      403:
-        description: No tiene permiso
-    """
-    page = request.args.get('page', default=1, type=int)
-    limit = request.args.get('limit', default=10, type=int)
-    page = max(1, page)
-    limit = max(1, min(limit, 50))
-
-    conn = get_db()
-    total = conn.execute('SELECT COUNT(*) as total FROM users').fetchone()['total']
-    rows = conn.execute(
-        'SELECT id, email, role, is_active, created_at FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?',
-        (limit, (page - 1) * limit)
-    ).fetchall()
-    conn.close()
-
-    return jsonify({
-        'success': True,
-        'message': 'Usuarios consultados correctamente',
-        'data': [dict(row) for row in rows],
-        'pagination': {
-            'page': page,
-            'limit': limit,
-            'total': total
-        }
-    }), 200
-
-
-@app.route('/api/admin/users/<int:user_id>/role', methods=['PATCH'])
-@jwt_required()
-@role_required('admin')
-def update_user_role(user_id):
-    """
-    Update user role (admin only)
-    ---
-    tags:
-      - Admin
-    security:
-      - Bearer: []
-    parameters:
-      - name: user_id
-        in: path
-        type: integer
-        required: true
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            role:
-              type: string
-              enum: [user, admin]
-    responses:
-      200:
-        description: Rol actualizado correctamente
-      403:
-        description: No tiene permiso
-      404:
-        description: Usuario no encontrado
-    """
-    payload = request.get_json(silent=True) or {}
-    role = str(payload.get('role', '')).strip().lower()
-
-    if role not in ['user', 'admin']:
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'VALIDATION_ERROR',
-                'message': 'Rol inválido. Debe ser "user" o "admin"'
-            }
-        }), 400
-
-    conn = get_db()
-    user = conn.execute('SELECT id, email, role FROM users WHERE id = ?', (user_id,)).fetchone()
-
-    if not user:
-        conn.close()
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'NOT_FOUND',
-                'message': 'Usuario no encontrado'
-            }
-        }), 404
-
-    conn.execute('UPDATE users SET role = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', (role, user_id))
-    conn.commit()
-    conn.close()
-
-    return jsonify({
-        'success': True,
-        'message': 'Rol actualizado correctamente',
-        'data': {
-            'user_id': user_id,
-            'email': user['email'],
-            'role': role
-        }
-    }), 200
+        return wrapped
+
+    def session_data(user, sid, include_refresh=False):
+        claims = {'sid': sid, 'email': user['email'], 'role': user['role']}
+        data = dict(user_id=user['id'], email=user['email'], role=user['role'],
+            access_token=create_access_token(identity=str(user['id']), additional_claims=claims),
+            token_type='Bearer', expires_in=int(app.config['JWT_ACCESS_TOKEN_EXPIRES'].total_seconds()))
+        if include_refresh:
+            data['refresh_token'] = create_refresh_token(identity=str(user['id']), additional_claims={'sid': sid})
+        return data
+
+    def new_session(user):
+        sid = secrets.token_urlsafe(32)
+        db().execute('DELETE FROM sessions WHERE expires_at<=?', (int(time.time()),))
+        db().execute('INSERT INTO sessions VALUES (?, ?, ?)', (sid, user['id'], int(time.time()) + 30 * 86400))
+        db().commit()
+        return session_data(user, sid, include_refresh=True)
+
+    @app.get('/api/health')
+    def health():
+        return jsonify(success=True, data={'status': 'ok'})
+
+    @app.post('/api/auth/register')
+    def register():
+        payload = body()
+        email, password = payload.get('email'), payload.get('password')
+        fields = {}
+        try:
+            email = validate_email(email, check_deliverability=False).normalized.lower()
+        except (EmailNotValidError, TypeError, AttributeError):
+            fields['email'] = ['Introduce un correo electrónico válido.']
+        if (not isinstance(password, str) or len(password) < 8 or len(password.encode('utf-8')) > 72 or
+                not all(re.search(pattern, password) for pattern in (r'[A-Z]', r'[a-z]', r'[0-9]', r'[^\w\s]'))):
+            fields['password'] = ['Usa al menos 8 caracteres, mayúscula, minúscula, número y símbolo; máximo 72 bytes.']
+        if fields:
+            return validation(fields)
+        if db().execute('SELECT id FROM users WHERE email=?', (email,)).fetchone():
+            return error('DUPLICATE_EMAIL', 'El correo ya está registrado.', 409, {'email': ['Este correo ya está registrado.']})
+        password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+        cursor = db().execute('INSERT INTO users(email,password_hash) VALUES (?,?)', (email, password_hash))
+        db().commit()
+        user = db().execute('SELECT * FROM users WHERE id=?', (cursor.lastrowid,)).fetchone()
+        return jsonify(success=True, data=new_session(user)), 201
+
+    @app.post('/api/auth/login')
+    def login():
+        payload = body()
+        email, password = payload.get('email'), payload.get('password')
+        fields = {}
+        if not isinstance(email, str) or not email.strip():
+            fields['email'] = ['El correo es obligatorio.']
+        if not isinstance(password, str) or not password or len(password.encode()) > 72:
+            fields['password'] = ['Introduce una contraseña de hasta 72 bytes.']
+        if fields:
+            return validation(fields)
+        user = db().execute('SELECT * FROM users WHERE email=? AND is_active=1', (email.strip().lower(),)).fetchone()
+        if not user or not bcrypt.checkpw(password.encode(), user['password_hash'].encode()):
+            return error('INVALID_CREDENTIALS', 'Correo o contraseña incorrectos.', 401)
+        return jsonify(success=True, data=new_session(user))
+
+    @app.post('/api/auth/refresh')
+    @jwt_required(refresh=True)
+    def refresh():
+        return jsonify(success=True, data=session_data(current_user(), get_jwt()['sid']))
+
+    @app.post('/api/auth/logout')
+    @jwt_required(verify_type=False)
+    def logout():
+        db().execute('DELETE FROM sessions WHERE id=?', (get_jwt()['sid'],))
+        db().commit()
+        return jsonify(success=True, message='Sesión cerrada.')
+
+    def note_fields(payload):
+        fields = {}
+        for field, minimum, maximum in [('title', 3, 100), ('content', 1, 5000)]:
+            value = payload.get(field)
+            if not isinstance(value, str) or not minimum <= len(value.strip()) <= maximum:
+                fields[field] = [f'Usa entre {minimum} y {maximum} caracteres.']
+        created = payload.get('createdAt')
+        if created is not None and (type(created) is not int or not 0 <= created <= 8640000000000000):
+            fields['createdAt'] = ['La fecha debe expresarse en milisegundos válidos.']
+        return fields
+
+    def note_row(note_id):
+        return db().execute('''SELECT n.id,n.user_id,n.title,n.content,n.createdAt,u.email AS author_email
+            FROM notes n JOIN users u ON n.user_id=u.id WHERE n.id=?''', (note_id,)).fetchone()
+
+    def permitted_note(note_id):
+        row = note_row(note_id)
+        if row is None:
+            return None, error('NOT_FOUND', 'La nota no existe.', 404)
+        user = current_user()
+        if row['user_id'] != user['id'] and user['role'] != 'admin':
+            return None, error('FORBIDDEN', 'No tienes permiso para acceder a esta nota.', 403)
+        return row, None
+
+    @app.post('/api/notes')
+    @jwt_required()
+    def create_note():
+        payload = body()
+        fields = note_fields(payload)
+        key = request.headers.get('Idempotency-Key')
+        if key is not None and not re.fullmatch(r'[A-Za-z0-9_-]{8,128}', key):
+            fields['client_id'] = ['Identificador de operación inválido.']
+        if fields:
+            return validation(fields)
+        user_id = int(get_jwt_identity())
+        title, content = payload['title'].strip(), payload['content'].strip()
+        fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        # Record and deduplication receipt commit atomically, even across workers.
+        db().execute('BEGIN IMMEDIATE')
+        if key:
+            receipt = db().execute('SELECT * FROM idempotency WHERE user_id=? AND key=?', (user_id, key)).fetchone()
+            if receipt:
+                db().rollback()
+                if receipt['fingerprint'] != fingerprint:
+                    return error('IDEMPOTENCY_CONFLICT', 'El identificador ya se usó con otros datos.', 409)
+                return jsonify(success=True, data=json.loads(receipt['response'])), 201
+        if db().execute('SELECT id FROM notes WHERE user_id=? AND lower(title)=lower(?)', (user_id, title)).fetchone():
+            db().rollback()
+            return error('DUPLICATE_TITLE', 'Ya existe una nota con ese título.', 409, {'title': ['El título ya está en uso.']})
+        cursor = db().execute('INSERT INTO notes(user_id,title,content,createdAt) VALUES (?,?,?,?)',
+            (user_id, title, content, payload.get('createdAt') if payload.get('createdAt') is not None else int(time.time() * 1000)))
+        data = dict(note_row(cursor.lastrowid))
+        if key:
+            data['client_id'] = key
+            db().execute('INSERT INTO idempotency VALUES (?,?,?,?)', (user_id, key, fingerprint, json.dumps(data)))
+        db().commit()
+        return jsonify(success=True, data=data), 201
+
+    @app.get('/api/notes')
+    @jwt_required()
+    def list_notes():
+        user = current_user()
+        page = max(1, request.args.get('page', 1, type=int))
+        limit = max(1, min(50, request.args.get('limit', 50, type=int)))
+        where, args = ('', []) if user['role'] == 'admin' else ('WHERE n.user_id=?', [user['id']])
+        total = db().execute(f'SELECT count(*) FROM notes n {where}', args).fetchone()[0]
+        rows = db().execute(f'''SELECT n.id,n.user_id,n.title,n.content,n.createdAt,u.email AS author_email
+            FROM notes n JOIN users u ON n.user_id=u.id {where}
+            ORDER BY n.createdAt DESC,n.id DESC LIMIT ? OFFSET ?''', [*args, limit, (page - 1) * limit]).fetchall()
+        return jsonify(success=True, data=[dict(row) for row in rows], pagination=dict(page=page, limit=limit, total=total))
+
+    @app.get('/api/notes/<int:note_id>')
+    @jwt_required()
+    def get_note(note_id):
+        row, failure = permitted_note(note_id)
+        return failure if failure else jsonify(success=True, data=dict(row))
+
+    @app.put('/api/notes/<int:note_id>')
+    @jwt_required()
+    def update_note(note_id):
+        row, failure = permitted_note(note_id)
+        if failure:
+            return failure
+        payload = body()
+        fields = note_fields(payload)
+        if fields:
+            return validation(fields)
+        db().execute('BEGIN IMMEDIATE')
+        if db().execute('SELECT id FROM notes WHERE user_id=? AND lower(title)=lower(?) AND id!=?',
+                        (row['user_id'], payload['title'].strip(), note_id)).fetchone():
+            db().rollback()
+            return error('DUPLICATE_TITLE', 'Ya existe una nota con ese título.', 409, {'title': ['El título ya está en uso.']})
+        db().execute('UPDATE notes SET title=?,content=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',
+                     (payload['title'].strip(), payload['content'].strip(), note_id))
+        db().commit()
+        return jsonify(success=True, data=dict(note_row(note_id)))
+
+    @app.delete('/api/notes/<int:note_id>')
+    @jwt_required()
+    def delete_note(note_id):
+        _row, failure = permitted_note(note_id)
+        if failure:
+            return failure
+        db().execute('DELETE FROM notes WHERE id=?', (note_id,))
+        db().commit()
+        return jsonify(success=True, message='Nota eliminada.')
+
+    @app.get('/api/admin/users')
+    @jwt_required()
+    @admin_required
+    def list_users():
+        rows = db().execute('SELECT id,email,role,is_active,created_at FROM users ORDER BY id').fetchall()
+        return jsonify(success=True, data=[dict(row) for row in rows])
+
+    @app.patch('/api/admin/users/<int:user_id>/role')
+    @jwt_required()
+    @admin_required
+    def update_user_role(user_id):
+        role = body().get('role')
+        if role not in ('user', 'admin'):
+            return validation({'role': ['Elige user o admin.']})
+        cursor = db().execute('UPDATE users SET role=?,updated_at=CURRENT_TIMESTAMP WHERE id=?', (role, user_id))
+        db().commit()
+        if not cursor.rowcount:
+            return error('NOT_FOUND', 'El usuario no existe.', 404)
+        return jsonify(success=True, data=dict(user_id=user_id, role=role))
+
+    @app.post('/api/notes/export')
+    @jwt_required()
+    def export_notes():
+        # The former worker only slept and promised a PDF it never generated.
+        rows = db().execute('SELECT id,user_id,title,content,createdAt FROM notes WHERE user_id=?',
+                            (get_jwt_identity(),)).fetchall()
+        response = jsonify(success=True, data=[dict(row) for row in rows])
+        response.headers['Content-Disposition'] = 'attachment; filename=baquero-notes.json'
+        return response
+
+    return app
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    create_app().run(host=os.getenv('HOST', '127.0.0.1'), port=int(os.getenv('PORT', '5000')), debug=False)

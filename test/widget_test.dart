@@ -3,11 +3,17 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:aplicacion_moviles/api_service.dart';
 import 'package:aplicacion_moviles/main.dart';
+import 'support.dart';
 
 void main() {
-  testWidgets('muestra el acceso y abre el catálogo reutilizable', (tester) async {
+  testWidgets('muestra el acceso y abre el catálogo reutilizable', (
+    tester,
+  ) async {
     final semantics = tester.ensureSemantics();
-    await tester.pumpWidget(MyApp(apiService: ApiService()));
+    await tester.pumpWidget(
+      MyApp(apiService: ApiService(storage: MemoryStorage())),
+    );
+    await tester.pumpAndSettle();
 
     expect(find.text('Baquero Notes'), findsOneWidget);
     expect(find.text('Inicia sesión'), findsOneWidget);
@@ -23,7 +29,9 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('admite fuente ampliada sin bloquear el desplazamiento', (tester) async {
+  testWidgets('admite fuente ampliada sin bloquear el desplazamiento', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -32,9 +40,10 @@ void main() {
     await tester.pumpWidget(
       MediaQuery(
         data: const MediaQueryData(textScaler: TextScaler.linear(1.5)),
-        child: MyApp(apiService: ApiService()),
+        child: MyApp(apiService: ApiService(storage: MemoryStorage())),
       ),
     );
+    await tester.pumpAndSettle();
 
     expect(find.byType(Scrollable), findsWidgets);
     expect(tester.takeException(), isNull);

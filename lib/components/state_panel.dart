@@ -28,8 +28,8 @@ class StatePanel extends StatelessWidget {
     final icon = type == StatePanelType.empty
         ? Icons.note_add_outlined
         : type == StatePanelType.error
-            ? Icons.cloud_off_outlined
-            : null;
+        ? Icons.cloud_off_outlined
+        : null;
 
     return Semantics(
       liveRegion: true,
@@ -52,13 +52,23 @@ class StatePanel extends StatelessWidget {
                 semanticsLabel: 'Cargando notas',
               )
             else
-              Icon(icon, size: AppTokens.space12, color: isError ? tokens.error : tokens.primary),
+              Icon(
+                icon,
+                size: AppTokens.space12,
+                color: isError ? tokens.error : tokens.primary,
+              ),
             const SizedBox(height: AppTokens.space4),
-            Text(title, style: Theme.of(context).textTheme.titleLarge, textAlign: TextAlign.center),
+            Text(
+              title,
+              style: Theme.of(context).textTheme.titleLarge,
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: AppTokens.space2),
             Text(
               message,
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: tokens.textMuted),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyLarge?.copyWith(color: tokens.textMuted),
               textAlign: TextAlign.center,
             ),
             if (actionLabel != null && onAction != null) ...<Widget>[
@@ -66,7 +76,9 @@ class StatePanel extends StatelessWidget {
               AppButton(
                 label: actionLabel!,
                 onPressed: onAction,
-                variant: isError ? AppButtonVariant.danger : AppButtonVariant.secondary,
+                variant: isError
+                    ? AppButtonVariant.danger
+                    : AppButtonVariant.secondary,
               ),
             ],
           ],

@@ -1,0 +1,56 @@
+[
+  {
+    "capitulo": 1,
+    "titulo": "Acceso y datos reales",
+    "pantalla": "Inicio de sesión y listado de notas recuperado del backend.",
+    "texto": "En este video presento la integración de Baquero Notes para la semana trece. La aplicación Flutter se conecta con nuestro backend Flask. Primero inicio sesión. El servidor valida las credenciales y devuelve los tokens, que se guardan en almacenamiento cifrado. Después consulto las notas. La información que vemos proviene de la base de datos real del servidor.",
+    "inicio": 0,
+    "fin": 28.75,
+    "duracion": 28.75
+  },
+  {
+    "capitulo": 2,
+    "titulo": "Creación de una nota",
+    "pantalla": "Formulario de título y contenido y nueva nota en el listado.",
+    "texto": "Ahora creo una nota desde el teléfono. Escribo el título y el contenido y envío el formulario. Una sola instancia del cliente Dio gestiona las solicitudes y añade automáticamente la autenticación. El servidor responde con el código doscientos uno, que confirma la creación. La nota aparece en el listado. Cada creación conserva un identificador único para que un reenvío no produzca registros duplicados.",
+    "inicio": 28.75,
+    "fin": 63.458,
+    "duracion": 34.708
+  },
+  {
+    "capitulo": 3,
+    "titulo": "Renovación automática del token",
+    "pantalla": "Actualización del listado y secuencia de estados 401, 200 y 200.",
+    "texto": "Para demostrar la renovación, configuré el token de acceso con una duración de sesenta segundos. Al actualizar, ya han pasado setenta y nueve segundos desde el acceso. El servidor responde cuatrocientos uno porque el token venció. El interceptor lo renueva y repite la consulta correctamente, sin pedir otra vez la contraseña. La petición se marca para evitar un bucle infinito.",
+    "inicio": 63.458,
+    "fin": 92.833,
+    "duracion": 29.375
+  },
+  {
+    "capitulo": 4,
+    "titulo": "Validación por campo",
+    "pantalla": "Registro con correo inválido y mensaje visible debajo del correo.",
+    "texto": "En esta prueba envío un correo con formato inválido. El backend devuelve el código cuatrocientos veintidós y señala el campo que tiene el problema. La aplicación traduce esa respuesta y coloca el mensaje debajo del correo electrónico. Así, la persona sabe qué debe corregir. Los errores se distinguen entre conectividad, tiempo de espera, errores del cliente y fallos del servidor.",
+    "inicio": 92.833,
+    "fin": 128.125,
+    "duracion": 35.292
+  },
+  {
+    "capitulo": 5,
+    "titulo": "Funcionamiento sin conexión",
+    "pantalla": "Aviso sin conexión y creación local con un cambio pendiente.",
+    "texto": "Ahora interrumpo la conexión con el backend. Las notas siguen disponibles porque el repositorio utiliza la caché local de SQLite. También aparece el aviso de falta de conexión. Creo una nueva nota mientras el servidor no es accesible. La aplicación la guarda en el dispositivo junto con su operación en la cola de salida. El contador muestra un cambio pendiente de sincronizar.",
+    "inicio": 128.125,
+    "fin": 158.125,
+    "duracion": 30.0
+  },
+  {
+    "capitulo": 6,
+    "titulo": "Sincronización y cierre",
+    "pantalla": "Restablecimiento de la conexión y contador de pendientes en cero.",
+    "texto": "Al recuperar la conexión, actualizo las notas. La cola envía el registro pendiente y el contador vuelve a cero. La base del servidor confirma una sola copia de la nota. Además, pasaron cuarenta y nueve pruebas automatizadas. En producción se exige HTTPS y se desactivan los registros de solicitudes. El repositorio contiene el código, el informe técnico y la evidencia de las pruebas realizadas en este teléfono.",
+    "inicio": 158.125,
+    "fin": 191.833,
+    "duracion": 33.708
+  }
+]

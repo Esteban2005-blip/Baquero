@@ -11,6 +11,8 @@ include: package:flutter_lints/flutter.yaml
 
 analyzer:
   exclude:
+    - lib-20260707T200135Z-3-001/**
+    - "**/*.g.dart"
     - build/**
     - android/**
     - ios/**

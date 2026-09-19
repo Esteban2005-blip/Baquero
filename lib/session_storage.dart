@@ -6,22 +6,13 @@ import 'session.dart';
 
 class SessionStorage {
   SessionStorage({FlutterSecureStorage? storage})
-      : _storage = storage ?? const FlutterSecureStorage();
+    : _storage = storage ?? const FlutterSecureStorage();
 
   static const _sessionKey = 'baquero.session';
   final FlutterSecureStorage _storage;
 
   Future<void> save(Session session) async {
-    await _storage.write(
-      key: _sessionKey,
-      value: jsonEncode(<String, dynamic>{
-        'user_id': session.userId,
-        'email': session.email,
-        'role': session.role,
-        'access_token': session.accessToken,
-        'refresh_token': session.refreshToken,
-      }),
-    );
+    await _storage.write(key: _sessionKey, value: jsonEncode(session.toJson()));
   }
 
   Future<Session?> read() async {

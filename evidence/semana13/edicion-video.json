@@ -1,0 +1,44 @@
+[
+  {
+    "chapter": 1,
+    "source": "01-login.mp4",
+    "source_seconds": 28.51,
+    "speed": 1.35,
+    "output_seconds": 24.118518518518517
+  },
+  {
+    "chapter": 2,
+    "source": "02-create.mp4",
+    "source_seconds": 50.71,
+    "speed": 1.6,
+    "output_seconds": 34.693749999999994
+  },
+  {
+    "chapter": 3,
+    "source": "03-refresh.mp4",
+    "source_seconds": 19.68,
+    "speed": 1,
+    "output_seconds": 22.68
+  },
+  {
+    "chapter": 4,
+    "source": "04-validation.mp4",
+    "source_seconds": 51.7,
+    "speed": 1.6,
+    "output_seconds": 35.3125
+  },
+  {
+    "chapter": 5,
+    "source": "05-offline.mp4",
+    "source_seconds": 43.26,
+    "speed": 1.6,
+    "output_seconds": 30.037499999999998
+  },
+  {
+    "chapter": 6,
+    "source": "06-reconnect.mp4",
+    "source_seconds": 25.35,
+    "speed": 1,
+    "output_seconds": 28.35
+  }
+]

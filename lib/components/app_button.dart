@@ -29,8 +29,8 @@ class AppButton extends StatelessWidget {
     final foreground = variant == AppButtonVariant.primary
         ? tokens.onPrimary
         : variant == AppButtonVariant.danger
-            ? tokens.error
-            : tokens.primary;
+        ? tokens.error
+        : tokens.primary;
     final background = variant == AppButtonVariant.primary
         ? tokens.primary
         : tokens.surface;
@@ -43,18 +43,22 @@ class AppButton extends StatelessWidget {
         const EdgeInsets.symmetric(horizontal: AppTokens.space6),
       ),
       foregroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
-        return states.contains(WidgetState.disabled) ? tokens.textMuted : foreground;
+        return states.contains(WidgetState.disabled)
+            ? tokens.textMuted
+            : foreground;
       }),
       backgroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
-        return states.contains(WidgetState.disabled) ? tokens.background : background;
+        return states.contains(WidgetState.disabled)
+            ? tokens.background
+            : background;
       }),
       side: WidgetStateProperty.resolveWith<BorderSide?>((states) {
         return BorderSide(
           color: states.contains(WidgetState.disabled)
               ? tokens.outline
               : variant == AppButtonVariant.danger
-                  ? tokens.error
-                  : tokens.primary,
+              ? tokens.error
+              : tokens.primary,
         );
       }),
       shape: WidgetStateProperty.all<OutlinedBorder>(
