@@ -242,24 +242,12 @@ class ApiService {
     required String content,
     required String operationId,
     required int createdAt,
-    double? latitude,
-    double? longitude,
-    List<NoteImage>? images,
   }) async {
     final body = await _request(
       'POST',
       '/notes',
       headers: {'Idempotency-Key': operationId},
-      data: {
-        'title': title,
-        'content': content,
-        'createdAt': createdAt,
-        if (images != null || latitude != null || longitude != null) ...{
-          'latitude': latitude,
-          'longitude': longitude,
-        },
-        if (images != null) 'images': images.map((image) => image.toJson()).toList(),
-      },
+      data: {'title': title, 'content': content, 'createdAt': createdAt},
     );
     return _parse(() => Note.fromJson(_data(body)));
   }
@@ -268,22 +256,11 @@ class ApiService {
     int id, {
     required String title,
     required String content,
-    double? latitude,
-    double? longitude,
-    List<NoteImage>? images,
   }) async {
     final body = await _request(
       'PUT',
       '/notes/$id',
-      data: {
-        'title': title,
-        'content': content,
-        if (images != null || latitude != null || longitude != null) ...{
-          'latitude': latitude,
-          'longitude': longitude,
-        },
-        if (images != null) 'images': images.map((image) => image.toJson()).toList(),
-      },
+      data: {'title': title, 'content': content},
     );
     return _parse(() => Note.fromJson(_data(body)));
   }

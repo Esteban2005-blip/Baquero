@@ -2,7 +2,7 @@ import 'package:json_annotation/json_annotation.dart';
 
 part 'note.g.dart';
 
-@JsonSerializable(checked: true, explicitToJson: true)
+@JsonSerializable(checked: true)
 class Note {
   const Note({
     this.id,
@@ -12,9 +12,6 @@ class Note {
     required this.title,
     required this.content,
     required this.createdAt,
-    this.latitude,
-    this.longitude,
-    this.images = const <NoteImage>[],
   });
   final int? id;
   @JsonKey(name: 'client_id')
@@ -26,11 +23,6 @@ class Note {
   final String title;
   final String content;
   final int createdAt;
-  final double? latitude;
-  final double? longitude;
-  final List<NoteImage> images;
-  bool get hasLocation => latitude != null && longitude != null;
-
   DateTime get createdDate => DateTime.fromMillisecondsSinceEpoch(createdAt);
   factory Note.fromJson(Map<String, dynamic> json) => _$NoteFromJson(json);
   Map<String, dynamic> toJson() => _$NoteToJson(this);
@@ -44,28 +36,5 @@ class Note {
     title: title,
     content: content,
     createdAt: createdAt,
-    latitude: latitude,
-    longitude: longitude,
-    images: images,
   );
-}
-
-/// The image bytes travel with the note and remain in its offline JSON cache.
-@JsonSerializable(checked: true)
-class NoteImage {
-  const NoteImage({
-    required this.name,
-    required this.mimeType,
-    required this.dataBase64,
-  });
-
-  final String name;
-  @JsonKey(name: 'mime_type')
-  final String mimeType;
-  @JsonKey(name: 'data_base64')
-  final String dataBase64;
-
-  factory NoteImage.fromJson(Map<String, dynamic> json) =>
-      _$NoteImageFromJson(json);
-  Map<String, dynamic> toJson() => _$NoteImageToJson(this);
 }

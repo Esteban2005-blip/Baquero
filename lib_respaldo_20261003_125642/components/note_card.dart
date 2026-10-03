@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 
 import '../design/app_tokens.dart';
@@ -16,50 +14,6 @@ class NoteCard extends StatelessWidget {
     final date = note.createdDate.toLocal();
     String twoDigits(int value) => value.toString().padLeft(2, '0');
     return '${twoDigits(date.day)}/${twoDigits(date.month)}/${date.year}';
-  }
-
-  Widget _photo(NoteImage image, {required double height, BoxFit fit = BoxFit.cover}) {
-    try {
-      return Image.memory(
-        base64Decode(image.dataBase64),
-        height: height,
-        width: double.infinity,
-        fit: fit,
-        cacheWidth: 1000,
-        errorBuilder: (_, __, ___) => SizedBox(
-          height: height,
-          child: const Center(child: Text('No se pudo mostrar la foto.')),
-        ),
-      );
-    } on FormatException {
-      return SizedBox(height: height, child: const Center(child: Text('Foto no disponible.')));
-    }
-  }
-
-  void _showPhotos(BuildContext context) {
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Fotos de ${note.title}'),
-        content: SizedBox(
-          width: 600,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                for (final image in note.images) ...<Widget>[
-                  InteractiveViewer(child: _photo(image, height: 260, fit: BoxFit.contain)),
-                  const SizedBox(height: 12),
-                ],
-              ],
-            ),
-          ),
-        ),
-        actions: <Widget>[
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar')),
-        ],
-      ),
-    );
   }
 
   @override
@@ -118,41 +72,9 @@ class NoteCard extends StatelessWidget {
             Text(
               note.content,
               style: textTheme.bodyLarge?.copyWith(color: tokens.textMuted),
-              maxLines: note.images.isEmpty ? 5 : 2,
+              maxLines: 5,
               overflow: TextOverflow.ellipsis,
             ),
-            if (note.images.isNotEmpty) ...<Widget>[
-              const SizedBox(height: AppTokens.space2),
-              Semantics(
-                button: true,
-                label: 'Ver ${note.images.length} fotos de ${note.title}',
-                child: InkWell(
-                  onTap: () => _showPhotos(context),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: _photo(note.images.first, height: 96),
-                  ),
-                ),
-              ),
-              Text('${note.images.length} foto(s) · Toca para ver', style: textTheme.labelSmall),
-            ],
-            if (note.hasLocation) ...<Widget>[
-              const SizedBox(height: AppTokens.space2),
-              Row(
-                children: <Widget>[
-                  const Icon(Icons.location_on_outlined, size: 16),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      '${note.latitude!.toStringAsFixed(6)}, ${note.longitude!.toStringAsFixed(6)}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: textTheme.bodySmall,
-                    ),
-                  ),
-                ],
-              ),
-            ],
             const Spacer(),
             const SizedBox(height: AppTokens.space4),
             Row(

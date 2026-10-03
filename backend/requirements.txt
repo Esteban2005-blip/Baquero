@@ -19,3 +19,4 @@ PyJWT==2.14.0
 pytest==9.1.1
 python-dotenv==1.2.3
 Werkzeug==3.1.8
+oracledb==26.0.1

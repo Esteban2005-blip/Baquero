@@ -1,7 +1,4 @@
 """Secure Notes API. Run: python -m backend.app (from repository root)."""
-import base64
-import binascii
-import math
 import hashlib
 import json
 import os
@@ -75,10 +72,6 @@ class OracleDatabase:
                 cursor.execute(sql, binds)
                 lastrowid = int(out_id.getvalue()[0])
             else:
-                if sql.startswith('INSERT INTO IMAGENES_NOTA '):
-                    cursor.setinputsizes(None, None, None, oracledb.DB_TYPE_BLOB)
-                elif sql.startswith('INSERT INTO IDEMPOTENCIA '):
-                    cursor.setinputsizes(None, None, None, oracledb.DB_TYPE_CLOB)
                 cursor.execute(sql, params)
             return OracleResult(cursor, lastrowid)
 
@@ -111,7 +104,7 @@ def create_app(test_config=None):
         ORACLE_HOST=os.getenv('ORACLE_HOST', 'localhost'),
         ORACLE_PORT=int(os.getenv('ORACLE_PORT', '1521')),
         ORACLE_SID=os.getenv('ORACLE_SID', 'orcl'),
-        REQUIRE_HTTPS=production, MAX_CONTENT_LENGTH=9 * 1024 * 1024,
+        REQUIRE_HTTPS=production, MAX_CONTENT_LENGTH=64 * 1024,
     )
     if test_config:
         app.config.update(test_config)
@@ -291,61 +284,8 @@ def create_app(test_config=None):
         db().commit()
         return jsonify(success=True, message='Sesión cerrada.')
 
-    def media_fields(payload):
-        fields = {}
-        if 'latitude' in payload or 'longitude' in payload:
-            lat, lon = payload.get('latitude'), payload.get('longitude')
-            if (lat is None) != (lon is None):
-                fields['latitude'] = ['Envía ambas coordenadas o ambas vacías.']
-            for key, value, limit in [('latitude', lat, 90), ('longitude', lon, 180)]:
-                if value is not None and (type(value) not in (int, float)
-                        or not math.isfinite(value) or not -limit <= value <= limit):
-                    fields[key] = ['Coordenada inválida.']
-        images = payload.get('images', [])
-        if not isinstance(images, list) or len(images) > 3:
-            fields['images'] = ['Puedes adjuntar hasta tres imágenes.']
-            return fields
-        for image in images:
-            if not isinstance(image, dict):
-                fields['images'] = ['Formato de imagen inválido.']
-                break
-            name, mime, encoded = image.get('name'), image.get('mime_type'), image.get('data_base64')
-            if (not isinstance(name, str) or not 1 <= len(name.strip()) <= 255
-                    or mime not in ('image/jpeg', 'image/png', 'image/webp')
-                    or not isinstance(encoded, str) or len(encoded) > 2796204):
-                fields['images'] = ['Usa imágenes JPG, PNG o WebP de hasta 2 MB.']
-                break
-            try:
-                data = base64.b64decode(encoded, validate=True)
-            except (ValueError, binascii.Error):
-                fields['images'] = ['Los datos de la imagen son inválidos.']
-                break
-            valid_header = ((mime == 'image/jpeg' and data.startswith(b'\xff\xd8\xff'))
-                or (mime == 'image/png' and data.startswith(b'\x89PNG\r\n\x1a\n'))
-                or (mime == 'image/webp' and data.startswith(b'RIFF') and data[8:12] == b'WEBP'))
-            if not valid_header or not 0 < len(data) <= 2 * 1024 * 1024:
-                fields['images'] = ['El formato o tamaño de la imagen no es válido.']
-                break
-        return fields
-
-    def replace_images(note_id, images):
-        # Called in the same transaction as the note and idempotency receipt.
-        db().execute('DELETE FROM IMAGENES_NOTA WHERE ID_NOTA=:1', (note_id,))
-        for image in images:
-            db().execute('INSERT INTO IMAGENES_NOTA (ID_NOTA,NOMBRE_ARCHIVO,TIPO_MIME,IMAGEN) VALUES (:1,:2,:3,:4)',
-                (note_id, image['name'].strip(), image['mime_type'],
-                 base64.b64decode(image['data_base64'], validate=True)))
-
-    def note_data(row):
-        data = dict(row)
-        images = db().execute("""SELECT NOMBRE_ARCHIVO AS "name", TIPO_MIME AS "mime_type", IMAGEN AS "bytes"
-            FROM IMAGENES_NOTA WHERE ID_NOTA=:1 ORDER BY ID_IMAGEN""", (row['id'],)).fetchall()
-        data['images'] = [dict(name=image['name'], mime_type=image['mime_type'],
-            data_base64=base64.b64encode(image['bytes']).decode('ascii')) for image in images]
-        return data
-
     def note_fields(payload):
-        fields = media_fields(payload)
+        fields = {}
         for field, minimum, maximum in [('title', 3, 100), ('content', 1, 5000)]:
             value = payload.get(field)
             if not isinstance(value, str) or not minimum <= len(value.strip()) <= maximum:
@@ -356,7 +296,7 @@ def create_app(test_config=None):
         return fields
 
     def note_row(note_id):
-        return db().execute('''SELECT n.ID_NOTA AS "id",n.ID_USUARIO AS "user_id",n.TITULO AS "title",n.CONTENIDO AS "content",n.FECHA_CREACION_MS AS "createdAt",n.LATITUD AS "latitude",n.LONGITUD AS "longitude",u.CORREO AS "author_email"
+        return db().execute('''SELECT n.ID_NOTA AS "id",n.ID_USUARIO AS "user_id",n.TITULO AS "title",n.CONTENIDO AS "content",n.FECHA_CREACION_MS AS "createdAt",u.CORREO AS "author_email"
             FROM NOTAS n JOIN USUARIOS u ON n.ID_USUARIO=u.ID_USUARIO WHERE n.ID_NOTA=:1''', (note_id,)).fetchone()
 
     def permitted_note(note_id):
@@ -394,11 +334,9 @@ def create_app(test_config=None):
         if db().execute('SELECT ID_NOTA FROM NOTAS WHERE ID_USUARIO=:1 AND LOWER(TITULO)=LOWER(:2)', (user_id, title)).fetchone():
             db().rollback()
             return error('DUPLICATE_TITLE', 'Ya existe una nota con ese título.', 409, {'title': ['El título ya está en uso.']})
-        cursor = db().execute('INSERT INTO NOTAS (ID_USUARIO,TITULO,CONTENIDO,FECHA_CREACION_MS,LATITUD,LONGITUD) VALUES (:1,:2,:3,:4,:5,:6)',
-            (user_id, title, content, payload.get('createdAt') if payload.get('createdAt') is not None else int(time.time() * 1000),
-             payload.get('latitude'), payload.get('longitude')))
-        replace_images(cursor.lastrowid, payload.get('images', []))
-        data = note_data(note_row(cursor.lastrowid))
+        cursor = db().execute('INSERT INTO NOTAS (ID_USUARIO,TITULO,CONTENIDO,FECHA_CREACION_MS) VALUES (:1,:2,:3,:4)',
+            (user_id, title, content, payload.get('createdAt') if payload.get('createdAt') is not None else int(time.time() * 1000)))
+        data = dict(note_row(cursor.lastrowid))
         if key:
             data['client_id'] = key
             db().execute('INSERT INTO IDEMPOTENCIA (ID_USUARIO,CLAVE,HUELLA,RESPUESTA) VALUES (:1,:2,:3,:4)', (user_id, key, fingerprint, json.dumps(data)))
@@ -413,17 +351,17 @@ def create_app(test_config=None):
         limit = max(1, min(50, request.args.get('limit', 50, type=int)))
         where, args = ('', []) if user['role'] == 'admin' else ('WHERE n.ID_USUARIO=:1', [user['id']])
         total = db().execute(f'SELECT count(*) FROM NOTAS n {where}', args).fetchone()[0]
-        rows = db().execute(f'''SELECT n.ID_NOTA AS "id",n.ID_USUARIO AS "user_id",n.TITULO AS "title",n.CONTENIDO AS "content",n.FECHA_CREACION_MS AS "createdAt",n.LATITUD AS "latitude",n.LONGITUD AS "longitude",u.CORREO AS "author_email"
+        rows = db().execute(f'''SELECT n.ID_NOTA AS "id",n.ID_USUARIO AS "user_id",n.TITULO AS "title",n.CONTENIDO AS "content",n.FECHA_CREACION_MS AS "createdAt",u.CORREO AS "author_email"
             FROM NOTAS n JOIN USUARIOS u ON n.ID_USUARIO=u.ID_USUARIO {where}
             ORDER BY n.FECHA_CREACION_MS DESC,n.ID_NOTA DESC OFFSET :offset_rows ROWS FETCH NEXT :limit_rows ROWS ONLY''', {**({'1': user['id']} if where else {}),
                 'limit_rows': limit, 'offset_rows': (page - 1) * limit}).fetchall()
-        return jsonify(success=True, data=[note_data(row) for row in rows], pagination=dict(page=page, limit=limit, total=total))
+        return jsonify(success=True, data=[dict(row) for row in rows], pagination=dict(page=page, limit=limit, total=total))
 
     @app.get('/api/notes/<int:note_id>')
     @jwt_required()
     def get_note(note_id):
         row, failure = permitted_note(note_id)
-        return failure if failure else jsonify(success=True, data=note_data(row))
+        return failure if failure else jsonify(success=True, data=dict(row))
 
     @app.put('/api/notes/<int:note_id>')
     @jwt_required()
@@ -441,15 +379,10 @@ def create_app(test_config=None):
                         (row['user_id'], payload['title'].strip(), note_id)).fetchone():
             db().rollback()
             return error('DUPLICATE_TITLE', 'Ya existe una nota con ese título.', 409, {'title': ['El título ya está en uso.']})
-        db().execute('UPDATE NOTAS SET TITULO=:1,CONTENIDO=:2,LATITUD=:3,LONGITUD=:4,FECHA_MODIFICACION=SYSTIMESTAMP WHERE ID_NOTA=:5',
-                     (payload['title'].strip(), payload['content'].strip(),
-                      (payload.get('latitude') if 'latitude' in payload or 'longitude' in payload else row['latitude']),
-                      (payload.get('longitude') if 'latitude' in payload or 'longitude' in payload else row['longitude']), note_id))
-        if 'images' in payload:
-            replace_images(note_id, payload['images'])
-        data = note_data(note_row(note_id))
+        db().execute('UPDATE NOTAS SET TITULO=:1,CONTENIDO=:2,FECHA_MODIFICACION=SYSTIMESTAMP WHERE ID_NOTA=:3',
+                     (payload['title'].strip(), payload['content'].strip(), note_id))
         db().commit()
-        return jsonify(success=True, data=data)
+        return jsonify(success=True, data=dict(note_row(note_id)))
 
     @app.delete('/api/notes/<int:note_id>')
     @jwt_required()

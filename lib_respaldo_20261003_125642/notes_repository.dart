@@ -77,9 +77,6 @@ class NotesRepository {
     Note? existing,
     required String title,
     required String content,
-    double? latitude,
-    double? longitude,
-    List<NoteImage>? images,
   }) => _exclusive(() async {
     final operationId = const Uuid().v4();
     final clientId = existing?.clientId ?? const Uuid().v4();
@@ -96,12 +93,6 @@ class NotesRepository {
       userId: existing?.userId ?? session.userId,
       title: title,
       content: content,
-      // The editor supplies images (including an empty list) when attachments
-      // were edited. Older callers retain the existing attachments.
-      latitude: images != null ? latitude : latitude ?? existing?.latitude,
-      longitude: images != null ? longitude : longitude ?? existing?.longitude,
-      images: List<NoteImage>.unmodifiable(images ?? existing?.images ?? const <NoteImage>[]),
-      authorEmail: existing?.authorEmail,
       createdAt: existing?.createdAt ?? DateTime.now().millisecondsSinceEpoch,
     );
     await _database.enqueue(
@@ -158,9 +149,6 @@ class NotesRepository {
               content: op.note.content,
               operationId: op.operationId,
               createdAt: op.note.createdAt,
-              latitude: op.note.latitude,
-              longitude: op.note.longitude,
-              images: op.note.images,
             );
             break;
           case 'update':
@@ -175,9 +163,6 @@ class NotesRepository {
               op.note.id!,
               title: op.note.title,
               content: op.note.content,
-              latitude: op.note.latitude,
-              longitude: op.note.longitude,
-              images: op.note.images,
             );
             break;
           case 'delete':

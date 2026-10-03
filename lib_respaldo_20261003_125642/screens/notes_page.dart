@@ -1,7 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
-
-import 'package:image_picker/image_picker.dart';
 
 import 'package:flutter/material.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -299,7 +296,7 @@ class _NotesPageState extends State<NotesPage> {
                 crossAxisCount: columns,
                 crossAxisSpacing: AppTokens.space4,
                 mainAxisSpacing: AppTokens.space4,
-                mainAxisExtent: 380,
+                mainAxisExtent: 250,
               ),
               itemBuilder: (context, index) {
                 final note = _notes[index];
@@ -341,18 +338,12 @@ class _NoteEditorDialogState extends State<NoteEditorDialog> {
   String? _error;
   ApiException? _failure;
   Note? _draft;
-  double? _latitude;
-  double? _longitude;
-  List<NoteImage> _images = <NoteImage>[];
-  bool _attaching = false;
+  String? _metaStatus;
 
   @override
   void initState() {
     super.initState();
     _draft = widget.note;
-    _latitude = widget.note?.latitude;
-    _longitude = widget.note?.longitude;
-    _images = List<NoteImage>.of(widget.note?.images ?? const <NoteImage>[]);
     _titleController = TextEditingController(text: widget.note?.title ?? '');
     _contentController = TextEditingController(
       text: widget.note?.content ?? '',
@@ -367,7 +358,7 @@ class _NoteEditorDialogState extends State<NoteEditorDialog> {
   }
 
   Future<void> _save() async {
-    if (_saving || _attaching) return;
+    if (_saving) return;
     if (!_formKey.currentState!.validate()) return;
     setState(() {
       _saving = true;
@@ -376,14 +367,12 @@ class _NoteEditorDialogState extends State<NoteEditorDialog> {
     });
     try {
       final content = _contentController.text.trim();
+      final safeContent = _metaStatus == null ? content : '$content\n\n$_metaStatus';
       await widget.repository.save(
         widget.session,
         existing: _draft,
         title: _titleController.text.trim(),
-        content: content,
-        latitude: _latitude,
-        longitude: _longitude,
-        images: List<NoteImage>.of(_images),
+        content: safeContent,
       );
       if (mounted) {
         Navigator.pop(context, true);
@@ -404,88 +393,40 @@ class _NoteEditorDialogState extends State<NoteEditorDialog> {
   }
 
   Future<void> _attachPhoto() async {
-    if (_saving || _attaching) return;
-    if (_images.length >= 3) {
-      setState(() => _error = 'Puedes adjuntar hasta tres fotos.');
+    final result = await _capabilities.requestCameraAccess();
+    if (result.status == CapabilityStatus.granted) {
+      final image = await _capabilities.pickImageFromCamera();
+      if (image == null) {
+        setState(() => _metaStatus = 'Foto no adjuntada.');
+        return;
+      }
+      setState(() => _metaStatus = 'Foto adjuntada: ${image.name}');
       return;
     }
-    setState(() { _attaching = true; _error = null; });
-    try {
-      final result = await _capabilities.requestCameraAccess();
-      if (!mounted) return;
-      if (result.status != CapabilityStatus.granted) {
-        if (result.openSettings) await openAppSettings();
-        if (mounted) setState(() => _error = result.message);
-        return;
-      }
-      final image = await ImagePicker().pickImage(
-        source: ImageSource.camera,
-        maxWidth: 1600,
-        maxHeight: 1600,
-        imageQuality: 75,
-      );
-      if (image == null || !mounted) return;
-      final bytes = await image.readAsBytes();
-      if (!mounted) return;
-      if (bytes.isEmpty || bytes.length > 2 * 1024 * 1024) {
-        setState(() => _error = 'La foto debe pesar como máximo 2 MB. Intenta otra captura.');
-        return;
-      }
-      String? mime;
-      if (bytes.length >= 3 && bytes[0] == 255 && bytes[1] == 216 && bytes[2] == 255) {
-        mime = 'image/jpeg';
-      } else if (bytes.length >= 8 &&
-          bytes.take(8).join(',') == '137,80,78,71,13,10,26,10') {
-        mime = 'image/png';
-      } else if (bytes.length >= 12 &&
-          ascii.decode(bytes.sublist(0, 4), allowInvalid: true) == 'RIFF' &&
-          ascii.decode(bytes.sublist(8, 12), allowInvalid: true) == 'WEBP') {
-        mime = 'image/webp';
-      }
-      if (mime == null) {
-        setState(() => _error = 'Usa una foto en formato JPG, PNG o WebP.');
-        return;
-      }
-      setState(() => _images.add(NoteImage(
-        name: image.name,
-        mimeType: mime!,
-        dataBase64: base64Encode(bytes),
-      )));
-    } catch (_) {
-      if (mounted) setState(() => _error = 'No se pudo adjuntar la foto. Intenta nuevamente.');
-    } finally {
-      if (mounted) setState(() => _attaching = false);
+    if (result.openSettings == true) {
+      await openAppSettings();
+    }
+    if (result.message != null) {
+      setState(() => _error = result.message);
     }
   }
 
   Future<void> _attachLocation() async {
-    if (_saving || _attaching) return;
-    setState(() { _attaching = true; _error = null; });
-    try {
-      final result = await _capabilities.requestLocationAccess();
-      if (!mounted) return;
-      if (result.status != CapabilityStatus.granted) {
-        if (result.openSettings) await openAppSettings();
-        if (mounted) setState(() => _error = result.message);
-        return;
-      }
-      final position = await _capabilities.getCurrentLocation()
-          .timeout(const Duration(seconds: 30));
-      if (!mounted) return;
+    final result = await _capabilities.requestLocationAccess();
+    if (result.status == CapabilityStatus.granted) {
+      final position = await _capabilities.getCurrentLocation();
       if (position == null) {
-        setState(() => _error = 'Ubicación no disponible. Intenta nuevamente.');
+        setState(() => _metaStatus = 'Ubicación no disponible.');
         return;
       }
-      setState(() {
-        _latitude = position.latitude;
-        _longitude = position.longitude;
-      });
-    } on TimeoutException {
-      if (mounted) setState(() => _error = 'La ubicación tardó demasiado. Activa el GPS e intenta nuevamente.');
-    } catch (_) {
-      if (mounted) setState(() => _error = 'No se pudo obtener la ubicación. Intenta nuevamente.');
-    } finally {
-      if (mounted) setState(() => _attaching = false);
+      setState(() => _metaStatus = 'Ubicación: ${position.latitude}, ${position.longitude}');
+      return;
+    }
+    if (result.openSettings == true) {
+      await openAppSettings();
+    }
+    if (result.message != null) {
+      setState(() => _error = result.message);
     }
   }
 
@@ -495,9 +436,8 @@ class _NoteEditorDialogState extends State<NoteEditorDialog> {
     return AlertDialog(
       title: Text(widget.note == null ? 'Nueva nota' : 'Editar nota'),
       content: SingleChildScrollView(
-        // A finite intrinsic width is required by AlertDialog when adding photos.
-        child: SizedBox(
-          width: 520,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
           child: Form(
             key: _formKey,
             child: Column(
@@ -540,7 +480,7 @@ class _NoteEditorDialogState extends State<NoteEditorDialog> {
                   children: <Widget>[
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: _saving || _attaching || _images.length >= 3 ? null : _attachPhoto,
+                        onPressed: _attachPhoto,
                         icon: const Icon(Icons.photo_camera_outlined),
                         label: const Text('Foto'),
                       ),
@@ -548,46 +488,20 @@ class _NoteEditorDialogState extends State<NoteEditorDialog> {
                     const SizedBox(width: AppTokens.space2),
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: _saving || _attaching ? null : _attachLocation,
+                        onPressed: _attachLocation,
                         icon: const Icon(Icons.location_on_outlined),
                         label: const Text('Ubicación'),
                       ),
                     ),
                   ],
                 ),
-                if (_attaching) ...<Widget>[
+                if (_metaStatus != null) ...<Widget>[
                   const SizedBox(height: AppTokens.space3),
-                  const LinearProgressIndicator(),
-                  const Text('Obteniendo foto o ubicación…'),
-                ],
-                for (var index = 0; index < _images.length; index++) ...<Widget>[
-                  const SizedBox(height: AppTokens.space3),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.memory(
-                      base64Decode(_images[index].dataBase64),
-                      height: 160,
-                      width: double.infinity,
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => const Text('No se pudo mostrar la foto.'),
+                  Text(
+                    _metaStatus!,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: tokens.textMuted,
                     ),
-                  ),
-                  TextButton.icon(
-                    onPressed: _saving || _attaching ? null : () => setState(() => _images.removeAt(index)),
-                    icon: const Icon(Icons.delete_outline),
-                    label: Text('Quitar foto ${index + 1}'),
-                  ),
-                ],
-                if (_latitude != null && _longitude != null) ...<Widget>[
-                  const SizedBox(height: AppTokens.space3),
-                  Text('Ubicación: ${_latitude!.toStringAsFixed(6)}, ${_longitude!.toStringAsFixed(6)}'),
-                  TextButton.icon(
-                    onPressed: _saving || _attaching ? null : () => setState(() {
-                      _latitude = null;
-                      _longitude = null;
-                    }),
-                    icon: const Icon(Icons.location_off_outlined),
-                    label: const Text('Quitar ubicación'),
                   ),
                 ],
                 if (_error != null) ...<Widget>[
@@ -604,7 +518,7 @@ class _NoteEditorDialogState extends State<NoteEditorDialog> {
       ),
       actions: <Widget>[
         TextButton(
-          onPressed: _saving || _attaching ? null : () => Navigator.pop(context, false),
+          onPressed: _saving ? null : () => Navigator.pop(context, false),
           child: const Text('Cancelar'),
         ),
         AppButton(

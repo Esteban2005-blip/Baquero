@@ -18,16 +18,6 @@ Note _$NoteFromJson(Map<String, dynamic> json) => $checkedCreate(
       title: $checkedConvert('title', (v) => v as String),
       content: $checkedConvert('content', (v) => v as String),
       createdAt: $checkedConvert('createdAt', (v) => (v as num).toInt()),
-      latitude: $checkedConvert('latitude', (v) => (v as num?)?.toDouble()),
-      longitude: $checkedConvert('longitude', (v) => (v as num?)?.toDouble()),
-      images: $checkedConvert(
-        'images',
-        (v) =>
-            (v as List<dynamic>?)
-                ?.map((e) => NoteImage.fromJson(e as Map<String, dynamic>))
-                .toList() ??
-            const <NoteImage>[],
-      ),
     );
     return val;
   },
@@ -46,27 +36,4 @@ Map<String, dynamic> _$NoteToJson(Note instance) => <String, dynamic>{
   'title': instance.title,
   'content': instance.content,
   'createdAt': instance.createdAt,
-  'latitude': instance.latitude,
-  'longitude': instance.longitude,
-  'images': instance.images.map((e) => e.toJson()).toList(),
-};
-
-NoteImage _$NoteImageFromJson(Map<String, dynamic> json) => $checkedCreate(
-  'NoteImage',
-  json,
-  ($checkedConvert) {
-    final val = NoteImage(
-      name: $checkedConvert('name', (v) => v as String),
-      mimeType: $checkedConvert('mime_type', (v) => v as String),
-      dataBase64: $checkedConvert('data_base64', (v) => v as String),
-    );
-    return val;
-  },
-  fieldKeyMap: const {'mimeType': 'mime_type', 'dataBase64': 'data_base64'},
-);
-
-Map<String, dynamic> _$NoteImageToJson(NoteImage instance) => <String, dynamic>{
-  'name': instance.name,
-  'mime_type': instance.mimeType,
-  'data_base64': instance.dataBase64,
 };
